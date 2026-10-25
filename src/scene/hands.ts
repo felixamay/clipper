@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
-/** Where the fingertips meet a piece. +Z is reach, +Y is the back of the hand. */
-const PINCH = new THREE.Vector3(0.0, -0.06, 1.12);
+/** Fingertips, in the hand's local space. +Z reaches, +Y is the back of the hand. */
+const PINCH = new THREE.Vector3(0.0, -0.02, 1.28);
 
 interface Finger {
   base: THREE.Group;
@@ -18,107 +18,175 @@ export interface HandRig {
   dispose: () => void;
 }
 
-function rounded(width: number, height: number, length: number, material: THREE.Material): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(Math.min(width, height) * 0.5, Math.max(0.02, length - height), 3, 8), material);
-  mesh.scale.set(width / height, 1, 1);
-  mesh.rotation.x = Math.PI / 2;
-  mesh.position.z = length / 2;
+function segmentGeometry(r0: number, r1: number, length: number): THREE.LatheGeometry {
+  const points: THREE.Vector2[] = [];
+  const steps = 6;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const radius = r0 + (r1 - r0) * t;
+    const belly = Math.sin(Math.PI * t) * Math.min(r0, r1) * 0.16;
+    const cap = i === 0 || i === steps ? 0.9 : 1;
+    points.push(new THREE.Vector2((radius + belly) * cap, length * t));
+  }
+  const geometry = new THREE.LatheGeometry(points, 20);
+  geometry.rotateX(Math.PI / 2);
+  return geometry;
+}
+
+function knuckleMesh(radius: number, material: THREE.Material): THREE.Mesh {
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 18, 14), material);
+  mesh.scale.set(1.08, 0.62, 0.86);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+function nailMesh(width: number, material: THREE.Material): THREE.Mesh {
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(width, 16, 12), material);
+  mesh.scale.set(0.92, 0.28, 1.45);
   mesh.castShadow = true;
   return mesh;
 }
 
-function makeFinger(material: THREE.Material, nail: THREE.Material, x: number, length: number, width: number): Finger {
-  const baseLen = length * 0.42;
-  const midLen = length * 0.32;
-  const tipLen = length * 0.26;
+function makeFinger(
+  skin: THREE.Material,
+  nail: THREE.Material,
+  x: number,
+  length: number,
+  radius: number,
+): Finger {
+  const proximal = length * 0.42;
+  const middle = length * 0.31;
+  const distal = length * 0.27;
   const base = new THREE.Group();
-  base.position.set(x, 0.09, 0.42);
+  base.position.set(x, 0.05, 0.26);
+  base.add(knuckleMesh(radius * 1.22, skin));
+  base.add(new THREE.Mesh(segmentGeometry(radius, radius * 0.9, proximal), skin));
+
   const mid = new THREE.Group();
-  mid.position.z = baseLen;
+  mid.position.z = proximal;
+  mid.add(knuckleMesh(radius * 0.98, skin));
+  const midMesh = new THREE.Mesh(segmentGeometry(radius * 0.9, radius * 0.74, middle), skin);
+  midMesh.castShadow = true;
+  mid.add(midMesh);
+
   const tip = new THREE.Group();
-  tip.position.z = midLen;
-  base.add(rounded(width, 0.11, baseLen, material));
-  mid.add(rounded(width * 0.92, 0.1, midLen, material));
-  const tipSeg = new THREE.Group();
-  tipSeg.add(rounded(width * 0.84, 0.09, tipLen, material));
-  const nailMesh = new THREE.Mesh(new THREE.BoxGeometry(width * 0.72, 0.018, tipLen * 0.55), nail);
-  nailMesh.position.set(0, 0.055, tipLen * 0.62);
-  tipSeg.add(nailMesh);
-  tip.add(tipSeg);
+  tip.position.z = middle;
+  tip.add(knuckleMesh(radius * 0.72, skin));
+  const tipMesh = new THREE.Mesh(segmentGeometry(radius * 0.74, radius * 0.58, distal), skin);
+  tipMesh.castShadow = true;
+  tip.add(tipMesh);
+  const plate = nailMesh(radius * 0.62, nail);
+  plate.position.set(0, radius * 0.62, distal * 0.58);
+  plate.rotation.x = -0.25;
+  tip.add(plate);
+
   mid.add(tip);
   base.add(mid);
+  base.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    }
+  });
   return { base, mid, tip };
-}
-
-function palmShape(): THREE.Shape {
-  const shape = new THREE.Shape();
-  shape.moveTo(0, -0.42);
-  shape.bezierCurveTo(-0.22, -0.46, -0.4, -0.18, -0.46, 0.08);
-  shape.bezierCurveTo(-0.5, 0.28, -0.44, 0.46, -0.36, 0.52);
-  shape.lineTo(0.34, 0.52);
-  shape.bezierCurveTo(0.46, 0.4, 0.42, 0.12, 0.3, -0.12);
-  shape.bezierCurveTo(0.2, -0.36, 0.12, -0.46, 0, -0.42);
-  return shape;
 }
 
 export function createHand(): HandRig {
   const root = new THREE.Group();
-  const skin = new THREE.MeshStandardMaterial({ color: '#d7a57c', roughness: 0.64, metalness: 0.02 });
-  const nail = new THREE.MeshStandardMaterial({ color: '#f4e0d2', roughness: 0.3, metalness: 0.06 });
-  const sleeveMat = new THREE.MeshStandardMaterial({ color: '#3c5340', roughness: 0.84, metalness: 0 });
+  const skin = new THREE.MeshPhysicalMaterial({
+    color: '#d7a57c',
+    roughness: 0.46,
+    metalness: 0,
+    sheen: 0.6,
+    sheenRoughness: 0.32,
+    sheenColor: new THREE.Color('#ffd2b4'),
+    clearcoat: 0.08,
+    clearcoatRoughness: 0.55,
+  });
+  const nail = new THREE.MeshPhysicalMaterial({
+    color: '#f6e4d6',
+    roughness: 0.28,
+    metalness: 0.04,
+    clearcoat: 0.45,
+    clearcoatRoughness: 0.25,
+  });
+  const sleeveMat = new THREE.MeshStandardMaterial({ color: '#3c5340', roughness: 0.86, metalness: 0 });
 
-  const palm = new THREE.Mesh(
-    new THREE.ExtrudeGeometry(palmShape(), {
-      depth: 0.12,
-      bevelEnabled: true,
-      bevelThickness: 0.035,
-      bevelSize: 0.04,
-      bevelSegments: 2,
-      curveSegments: 10,
-    }),
-    skin,
-  );
-  palm.rotation.x = -Math.PI / 2;
-  palm.position.y = -0.04;
+  const palmShape = new THREE.Shape();
+  palmShape.moveTo(-0.22, -0.2);
+  palmShape.quadraticCurveTo(-0.42, -0.16, -0.4, 0.02);
+  palmShape.quadraticCurveTo(-0.4, 0.24, -0.18, 0.28);
+  palmShape.lineTo(0.24, 0.28);
+  palmShape.quadraticCurveTo(0.4, 0.22, 0.38, 0.02);
+  palmShape.quadraticCurveTo(0.34, -0.18, 0.08, -0.22);
+  palmShape.quadraticCurveTo(-0.08, -0.24, -0.22, -0.2);
+  const palmGeo = new THREE.ExtrudeGeometry(palmShape, {
+    depth: 0.1,
+    bevelEnabled: true,
+    bevelThickness: 0.02,
+    bevelSize: 0.025,
+    bevelSegments: 2,
+    curveSegments: 8,
+  });
+  palmGeo.rotateX(-Math.PI / 2);
+  const palm = new THREE.Mesh(palmGeo, skin);
+  palm.position.y = -0.02;
   palm.castShadow = true;
   palm.receiveShadow = true;
   root.add(palm);
 
+  const heel = new THREE.Mesh(new THREE.SphereGeometry(0.22, 24, 16), skin);
+  heel.scale.set(1.35, 0.32, 0.85);
+  heel.position.set(0.0, 0.02, -0.22);
+  heel.castShadow = true;
+  root.add(heel);
+
+  const thenar = new THREE.Mesh(new THREE.SphereGeometry(0.12, 18, 12), skin);
+  thenar.scale.set(1.1, 0.45, 1.4);
+  thenar.position.set(-0.24, 0.04, 0.0);
+  thenar.castShadow = true;
+  root.add(thenar);
+
   const fingers = [
-    makeFinger(skin, nail, -0.27, 0.62, 0.15),
-    makeFinger(skin, nail, -0.09, 0.7, 0.155),
-    makeFinger(skin, nail, 0.09, 0.66, 0.15),
-    makeFinger(skin, nail, 0.26, 0.54, 0.135),
+    makeFinger(skin, nail, -0.24, 0.9, 0.062),
+    makeFinger(skin, nail, -0.08, 1.0, 0.066),
+    makeFinger(skin, nail, 0.08, 0.94, 0.062),
+    makeFinger(skin, nail, 0.23, 0.76, 0.054),
   ];
-  for (const finger of fingers) {
-    root.add(finger.base);
-    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), skin);
-    knuckle.scale.set(1.1, 0.55, 0.8);
-    knuckle.position.set(finger.base.position.x, 0.12, 0.46);
-    knuckle.castShadow = true;
-    root.add(knuckle);
-  }
+  for (const finger of fingers) root.add(finger.base);
 
   const thumb = new THREE.Group();
-  thumb.position.set(-0.42, 0.02, 0.02);
+  thumb.position.set(-0.4, 0.02, 0.06);
   const thumbMid = new THREE.Group();
-  thumbMid.position.z = 0.26;
-  thumb.add(rounded(0.16, 0.13, 0.26, skin));
-  const thumbTip = new THREE.Group();
-  thumbTip.add(rounded(0.14, 0.11, 0.22, skin));
-  const thumbNail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.016, 0.1), nail);
-  thumbNail.position.set(0, 0.06, 0.14);
-  thumbTip.add(thumbNail);
-  thumbMid.add(thumbTip);
+  thumbMid.position.z = 0.24;
+  thumb.add(knuckleMesh(0.07, skin));
+  thumb.add(new THREE.Mesh(segmentGeometry(0.062, 0.052, 0.24), skin));
+  thumbMid.add(knuckleMesh(0.055, skin));
+  thumbMid.add(new THREE.Mesh(segmentGeometry(0.05, 0.04, 0.2), skin));
+  const thumbNail = nailMesh(0.04, nail);
+  thumbNail.position.set(0, 0.045, 0.12);
+  thumbNail.rotation.x = -0.3;
+  thumbMid.add(thumbNail);
   thumb.add(thumbMid);
+  thumb.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    }
+  });
   root.add(thumb);
 
-  const wrist = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.2), skin);
-  wrist.position.set(0, 0.01, -0.5);
+  const wristGeo = segmentGeometry(0.13, 0.16, 0.22);
+  const wrist = new THREE.Mesh(wristGeo, skin);
+  wrist.position.set(0, -0.01, -0.5);
+  wrist.rotation.y = Math.PI;
   wrist.castShadow = true;
   root.add(wrist);
-  const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.16), sleeveMat);
-  cuff.position.set(0, 0.0, -0.66);
+
+  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.17, 0.14, 20), sleeveMat);
+  cuff.rotation.x = Math.PI / 2;
+  cuff.position.set(0, -0.015, -0.66);
   cuff.castShadow = true;
   root.add(cuff);
 
@@ -129,22 +197,23 @@ export function createHand(): HandRig {
   const setGrasp = (amount: number) => {
     const g = THREE.MathUtils.clamp(amount, 0, 1);
     fingers.forEach((finger, index) => {
-      finger.base.rotation.x = 0.05 + g * 0.9;
-      finger.base.rotation.z = (index - 1.5) * 0.03 * (1 - g);
-      finger.mid.rotation.x = 0.08 + g * 1.05;
-      finger.tip.rotation.x = 0.05 + g * 0.65;
+      finger.base.rotation.x = 0.12 + g * 0.85;
+      finger.base.rotation.z = (index - 1.5) * 0.035 * (1 - g * 0.5);
+      finger.mid.rotation.x = 0.16 + g * 0.95;
+      finger.tip.rotation.x = 0.08 + g * 0.55;
     });
-    thumb.rotation.set(0.25 + g * 0.5, -0.95, -0.05);
-    thumbMid.rotation.x = 0.2 + g * 0.7;
+    thumb.rotation.set(0.45 + g * 0.35, -1.05, 0.05);
+    thumbMid.rotation.x = 0.2 + g * 0.65;
   };
-  setGrasp(0.04);
+  setGrasp(0.08);
 
   return {
     root,
     pinch,
     setSkin: (hex) => {
       skin.color.set(hex);
-      nail.color.copy(skin.color.clone().lerp(new THREE.Color('#fff7f1'), 0.45));
+      skin.sheenColor.copy(skin.color.clone().lerp(new THREE.Color('#fff4ec'), 0.62));
+      nail.color.copy(skin.color.clone().lerp(new THREE.Color('#fff8f4'), 0.55));
     },
     setSleeve: (hex) => sleeveMat.color.set(hex),
     setGrasp,

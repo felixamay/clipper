@@ -85,7 +85,7 @@ h3 { font-size: 1.05rem; margin-top: 8px; }
 
 .roster-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .person { background: rgba(255, 255, 255, 0.04); padding: 8px; }
-.portrait svg { display: block; width: 100%; height: auto; }
+.portrait svg, .portrait-canvas { display: block; width: 100%; height: auto; }
 
 .record { display: grid; grid-template-columns: 1fr; gap: 2px; margin: 8px 0 0; }
 .record div { display: flex; justify-content: space-between; gap: 10px; }

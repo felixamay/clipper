@@ -1,269 +1,402 @@
-import {
-  PortraitSpec,
-  clampIndex,
-  eyeHex,
-  hairHex,
-  shirtHex,
-  skinHex,
-} from './palette';
+import { PortraitSpec, eyeHex, hairHex, shirtHex, skinHex } from './palette';
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const value = parseInt(hex.slice(1), 16);
   return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
 }
 
-function rgbToHex(r: number, g: number, b: number): string {
-  const channel = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
-  return `#${channel(r)}${channel(g)}${channel(b)}`;
-}
-
-function mix(hex: string, amount: number): string {
+function rgb(hex: string, amount: number): string {
   const { r, g, b } = hexToRgb(hex);
   const target = amount > 0 ? 255 : 0;
   const t = Math.abs(amount);
-  return rgbToHex(r + (target - r) * t, g + (target - g) * t, b + (target - b) * t);
-}
-
-function lipColor(skin: string, lift: number): string {
-  const { r, g, b } = hexToRgb(skin);
-  return rgbToHex(Math.min(255, r * 0.82 + 28 + lift), g * 0.58 + 8, b * 0.52);
+  const channel = (n: number, goal: number) => Math.max(0, Math.min(255, Math.round(n + (goal - n) * t)));
+  return `rgb(${channel(r, target)}, ${channel(g, target)}, ${channel(b, target)})`;
 }
 
 const FACE = {
-  oval: { jaw: 48, cheek: 76, temple: 70, brow: 62, crown: 48, chin: 10 },
-  round: { jaw: 66, cheek: 84, temple: 78, brow: 70, crown: 60, chin: 2 },
-  square: { jaw: 72, cheek: 78, temple: 74, brow: 66, crown: 52, chin: 0 },
-  long: { jaw: 42, cheek: 66, temple: 60, brow: 54, crown: 40, chin: 18 },
-  heart: { jaw: 36, cheek: 74, temple: 80, brow: 72, crown: 54, chin: 16 },
+  oval: { jaw: 46, cheek: 72, temple: 66, brow: 58, crown: 44, chin: 14 },
+  round: { jaw: 62, cheek: 80, temple: 74, brow: 66, crown: 56, chin: 4 },
+  square: { jaw: 68, cheek: 74, temple: 70, brow: 62, crown: 48, chin: 2 },
+  long: { jaw: 40, cheek: 62, temple: 56, brow: 50, crown: 36, chin: 22 },
+  heart: { jaw: 34, cheek: 70, temple: 76, brow: 68, crown: 50, chin: 18 },
 } as const;
 
-function headPath(spec: PortraitSpec): string {
+function facePath(spec: PortraitSpec): Path2D {
   const p = FACE[spec.face];
   const cx = 200;
   const chinY = 352 + p.chin;
-  return [
-    `M ${cx} ${chinY}`,
-    `C ${cx - p.jaw} ${chinY - 6}, ${cx - p.cheek} ${304}, ${cx - p.cheek + 2} ${262}`,
-    `C ${cx - p.temple - 2} ${214}, ${cx - p.brow} ${156}, ${cx - p.crown} ${128}`,
-    `Q ${cx} ${104} ${cx + p.crown} ${128}`,
-    `C ${cx + p.brow} ${156}, ${cx + p.temple + 2} ${214}, ${cx + p.cheek - 2} ${262}`,
-    `C ${cx + p.cheek} ${304}, ${cx + p.jaw} ${chinY - 6}, ${cx} ${chinY}`,
-    'Z',
-  ].join(' ');
+  const path = new Path2D();
+  path.moveTo(cx, chinY);
+  path.bezierCurveTo(cx - p.jaw, chinY - 10, cx - p.cheek, 304, cx - p.cheek + 4, 260);
+  path.bezierCurveTo(cx - p.temple, 210, cx - p.brow, 160, cx - p.crown, 132);
+  path.quadraticCurveTo(cx, 108, cx + p.crown, 132);
+  path.bezierCurveTo(cx + p.brow, 160, cx + p.temple, 210, cx + p.cheek - 4, 260);
+  path.bezierCurveTo(cx + p.cheek, 304, cx + p.jaw, chinY - 10, cx, chinY);
+  path.closePath();
+  return path;
 }
 
-function eye(cx: number, iris: string, shape: PortraitSpec['eyeShape']): string {
-  const open = shape === 'round' ? 11 : shape === 'narrow' ? 6.2 : shape === 'deep' ? 7.4 : 9;
-  const lid = shape === 'deep' ? 5.5 : shape === 'narrow' ? 7 : shape === 'round' ? 12 : 10;
-  const crease = shape === 'deep' ? -1 : -6;
-  return `
-    <g transform="translate(${cx} 232)">
-      <ellipse cx="0" cy="3" rx="22" ry="14" fill="rgba(50,24,16,0.10)" />
-      <ellipse cx="0" cy="0" rx="16" ry="${open}" fill="#f6f3ec" />
-      <circle cx="1.2" cy="0.8" r="6.4" fill="${iris}" />
-      <circle cx="1.2" cy="0.8" r="6.4" fill="rgba(0,0,0,0.18)" />
-      <circle cx="1.2" cy="0.8" r="2.7" fill="#120e0c" />
-      <circle cx="-1.2" cy="-1.3" r="1.45" fill="#fff" />
-      <path d="M-16 1 Q0 ${-lid} 16 1" fill="none" stroke="#2c1d16" stroke-width="1.7" stroke-linecap="round" />
-      <path d="M-13 ${crease * 0.15} Q0 ${crease} 13 0" fill="none" stroke="rgba(70,36,24,0.45)" stroke-width="1" />
-      <path d="M-14 2 Q0 ${open * 0.85} 14 2" fill="none" stroke="rgba(80,40,28,0.35)" stroke-width="1" />
-    </g>`;
+function ellipse(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number) {
+  ctx.beginPath();
+  ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
 }
 
-function brows(spec: PortraitSpec, color: string): string {
-  const weight = spec.brow === 'thick' ? 4.4 : spec.brow === 'soft' ? 2.2 : 3.2;
-  const arch = spec.brow === 'arched' ? 18 : spec.brow === 'straight' ? 8 : spec.brow === 'soft' ? 12 : 11;
-  const opacity = spec.brow === 'soft' ? 0.75 : 0.95;
-  return `
-    <path d="M146 214 Q164 ${214 - arch} 182 210" fill="none" stroke="${color}" stroke-width="${weight}" stroke-linecap="round" opacity="${opacity}" />
-    <path d="M218 210 Q236 ${214 - arch} 254 214" fill="none" stroke="${color}" stroke-width="${weight}" stroke-linecap="round" opacity="${opacity}" />`;
+function eye(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  shape: PortraitSpec['eyeShape'],
+  iris: string,
+  skin: string,
+) {
+  const open = shape === 'round' ? 12 : shape === 'narrow' ? 7 : shape === 'deep' ? 8 : 10;
+  ctx.fillStyle = 'rgba(50, 24, 16, 0.22)';
+  ellipse(ctx, x, 234, 28, 16);
+  ctx.fillStyle = '#f6f1e8';
+  ellipse(ctx, x, 230, 17, open);
+  const irisGrad = ctx.createRadialGradient(x - 2, 227, 1, x + 1, 230, 7);
+  irisGrad.addColorStop(0, rgb(iris, 0.4));
+  irisGrad.addColorStop(0.65, iris);
+  irisGrad.addColorStop(1, '#140e0c');
+  ctx.fillStyle = irisGrad;
+  ctx.beginPath();
+  ctx.arc(x + 1, 230, shape === 'narrow' ? 5.2 : 6.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#0d0b0a';
+  ctx.beginPath();
+  ctx.arc(x + 1.2, 230.4, 2.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.beginPath();
+  ctx.arc(x - 1.1, 228, 1.35, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = rgb(skin, -0.05);
+  ctx.beginPath();
+  ctx.moveTo(x - 18, 228);
+  ctx.quadraticCurveTo(x, 214 - (shape === 'deep' ? 2 : 0), x + 18, 229);
+  ctx.quadraticCurveTo(x, 224, x - 18, 228);
+  ctx.fill();
+  ctx.strokeStyle = '#24160f';
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x - 17, 229);
+  ctx.quadraticCurveTo(x, 216, x + 17, 229);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(80, 36, 28, 0.45)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x - 14, 232);
+  ctx.quadraticCurveTo(x, 230 + open, x + 14, 233);
+  ctx.stroke();
 }
 
-function nose(spec: PortraitSpec): string {
+function brows(ctx: CanvasRenderingContext2D, spec: PortraitSpec, color: string) {
+  const arch = spec.brow === 'arched' ? 16 : spec.brow === 'straight' ? 4 : spec.brow === 'soft' ? 10 : 8;
+  const weight = spec.brow === 'thick' ? 3.2 : spec.brow === 'soft' ? 1.4 : 2.2;
+  ctx.strokeStyle = color;
+  ctx.lineCap = 'round';
+  const strokes = spec.brow === 'thick' ? 5 : 3;
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < strokes; i++) {
+      ctx.lineWidth = weight - i * 0.25;
+      ctx.globalAlpha = 0.75 - i * 0.08;
+      ctx.beginPath();
+      const y = 206 + i * 1.3;
+      ctx.moveTo(200 + side * 58, y + 4);
+      ctx.quadraticCurveTo(200 + side * 36, y - arch, 200 + side * 14, y + 1);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function nose(ctx: CanvasRenderingContext2D, spec: PortraitSpec, skin: string) {
   const width = spec.nose === 'broad' ? 16 : spec.nose === 'narrow' ? 8 : spec.nose === 'soft' ? 11 : 12;
-  const bridge = spec.nose === 'narrow' ? 3 : spec.nose === 'broad' ? 7 : 5;
-  return `
-    <path d="M200 236 C${200 + bridge * 0.4} 262 ${200 + bridge * 0.3} 286 200 302" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="2.2" stroke-linecap="round" />
-    <path d="M${200 + bridge} 250 C${208 + width * 0.2} 286 ${204 + width * 0.15} 308 200 312" fill="none" stroke="rgba(40,18,10,0.20)" stroke-width="${spec.nose === 'soft' ? 3 : 4.5}" stroke-linecap="round" />
-    <ellipse cx="${200 - width}" cy="308" rx="${width * 0.48}" ry="4.2" fill="rgba(40,18,10,0.22)" />
-    <ellipse cx="${200 + width}" cy="308" rx="${width * 0.48}" ry="4.2" fill="rgba(40,18,10,0.28)" />
-    <ellipse cx="200" cy="300" rx="${width * 0.7}" ry="5" fill="rgba(255,255,255,0.10)" />`;
+  ctx.fillStyle = rgb(skin, -0.35);
+  ctx.globalAlpha = 0.16;
+  ctx.beginPath();
+  ctx.moveTo(196, 228);
+  ctx.quadraticCurveTo(188, 280, 200 - width, 312);
+  ctx.quadraticCurveTo(196, 292, 200, 250);
+  ctx.fill();
+  ctx.globalAlpha = 0.32;
+  ellipse(ctx, 200 - width + 2, 314, width * 0.28, 3.4);
+  ellipse(ctx, 200 + width - 2, 314, width * 0.3, 3.6);
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.beginPath();
+  ctx.moveTo(198, 236);
+  ctx.quadraticCurveTo(196, 280, 199, 308);
+  ctx.lineWidth = 2.4;
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 
-function mouth(spec: PortraitSpec, upper: string, lower: string): string {
-  const half = spec.mouth === 'wide' ? 34 : spec.mouth === 'narrow' ? 20 : 27;
-  const full = spec.mouth === 'full' ? 18 : spec.mouth === 'soft' ? 12 : spec.mouth === 'narrow' ? 8 : 14;
-  const bow = spec.mouth === 'soft' ? 6 : 10;
-  const y = 332;
-  return `
-    <path d="M${200 - half} ${y} Q${200 - half / 2} ${y - bow} 200 ${y - 2} Q${200 + half / 2} ${y - bow} ${200 + half} ${y} Q${200 + half / 2} ${y + 5} 200 ${y + 3} Q${200 - half / 2} ${y + 5} ${200 - half} ${y} Z" fill="${upper}" />
-    <path d="M${200 - half + 2} ${y + 2} Q200 ${y + full} ${200 + half - 2} ${y + 2} Q200 ${y + full * 0.45} ${200 - half + 2} ${y + 2} Z" fill="${lower}" />
-    <path d="M${200 - half + 4} ${y + 1} Q200 ${y + 7} ${200 + half - 4} ${y + 1}" fill="none" stroke="rgba(70,24,24,0.45)" stroke-width="1.2" />
-    <ellipse cx="200" cy="${y + full * 0.55}" rx="${half * 0.28}" ry="2.4" fill="rgba(255,255,255,0.16)" />`;
+function mouth(ctx: CanvasRenderingContext2D, spec: PortraitSpec, skin: string) {
+  const half = spec.mouth === 'wide' ? 30 : spec.mouth === 'narrow' ? 16 : 24;
+  const full = spec.mouth === 'full' ? 14 : spec.mouth === 'soft' ? 9 : spec.mouth === 'narrow' ? 7 : 11;
+  const y = 338;
+  const { r, g, b } = hexToRgb(skin);
+  const upper = `rgb(${Math.min(255, r * 0.62 + 70)}, ${g * 0.42 + 24}, ${b * 0.4 + 22})`;
+  const lower = `rgb(${Math.min(255, r * 0.7 + 90)}, ${g * 0.5 + 40}, ${b * 0.48 + 36})`;
+  ctx.fillStyle = upper;
+  ctx.beginPath();
+  ctx.moveTo(200 - half, y);
+  ctx.quadraticCurveTo(200 - half * 0.4, y - 8, 200, y - 1);
+  ctx.quadraticCurveTo(200 + half * 0.4, y - 8, 200 + half, y);
+  ctx.quadraticCurveTo(200, y + 3, 200 - half, y);
+  ctx.fill();
+  ctx.fillStyle = lower;
+  ctx.beginPath();
+  ctx.moveTo(200 - half + 1, y + 1);
+  ctx.quadraticCurveTo(200, y + full, 200 + half - 1, y + 1);
+  ctx.quadraticCurveTo(200, y + 3, 200 - half + 1, y + 1);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(90, 30, 32, 0.55)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(200 - half + 4, y + 0.5);
+  ctx.quadraticCurveTo(200, y + 3, 200 + half - 4, y + 0.5);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.beginPath();
+  ctx.moveTo(200 - half * 0.4, y + full * 0.45);
+  ctx.quadraticCurveTo(200, y + full * 0.25, 200 + half * 0.4, y + full * 0.5);
+  ctx.stroke();
 }
 
-function hairBack(spec: PortraitSpec, color: string): string {
-  if (spec.hairStyle === 'bald' || spec.hairStyle === 'crop' || spec.hairStyle === 'bun') return '';
-  if (spec.hairStyle === 'long') {
-    return `
-      <path d="M118 210 C90 280 78 390 96 470 L146 470 C132 390 140 300 156 230 Z" fill="${color}" />
-      <path d="M282 210 C310 280 322 390 304 470 L254 470 C268 390 260 300 244 230 Z" fill="${color}" />
-      <path d="M96 430 C120 470 150 490 200 492 C250 490 280 470 304 430 L286 430 C268 458 240 468 200 468 C160 468 132 458 114 430 Z" fill="${mix(color, -0.18)}" />`;
-  }
-  if (spec.hairStyle === 'wavy') {
-    return `
-      <path d="M124 214 C100 280 108 360 126 420 L156 408 C140 340 138 270 160 230 Z" fill="${color}" />
-      <path d="M276 214 C300 280 292 360 274 420 L244 408 C260 340 262 270 240 230 Z" fill="${color}" />`;
-  }
-  return '';
-}
-
-function hairFront(spec: PortraitSpec, color: string, shade: string): string {
+function hair(ctx: CanvasRenderingContext2D, spec: PortraitSpec, color: string) {
   const p = FACE[spec.face];
   const left = 200 - p.temple - 8;
   const right = 200 + p.temple + 8;
+  const shade = rgb(color, -0.3);
+  const light = rgb(color, 0.4);
+  ctx.fillStyle = color;
   if (spec.hairStyle === 'bald') {
-    return `
-      <ellipse cx="176" cy="150" rx="28" ry="10" fill="rgba(255,255,255,0.10)" />
-      <path d="M${left + 18} 168 Q200 156 ${right - 18} 168" fill="none" stroke="${shade}" stroke-width="3" opacity="0.25" />`;
+    ctx.strokeStyle = shade;
+    ctx.globalAlpha = 0.25;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(150, 156);
+    ctx.quadraticCurveTo(200, 140, 250, 158);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    return;
   }
-  if (spec.hairStyle === 'coily' || spec.hairStyle === 'curly') {
-    const coils: string[] = [];
-    const dense = spec.hairStyle === 'coily';
-    const step = dense ? 16 : 22;
-    const radius = dense ? 11 : 15;
-    for (let y = 112; y <= 196; y += step) {
-      for (let x = left + 8; x <= right - 8; x += step) {
-        const span = y < 150 ? right - left : (right - left) * 0.72;
-        if (Math.abs(x - 200) > span / 2) continue;
-        coils.push(`<circle cx="${x}" cy="${y}" r="${radius}" fill="${(x + y) % (step * 2) === 0 ? shade : color}" />`);
-      }
+  if (spec.hairStyle === 'long' || spec.hairStyle === 'wavy') {
+    ctx.fillStyle = shade;
+    ctx.beginPath();
+    ctx.moveTo(124, 210);
+    ctx.bezierCurveTo(70, 280, 78, 400, 108, 470);
+    ctx.lineTo(148, 470);
+    ctx.bezierCurveTo(130, 380, 140, 280, 164, 220);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(276, 210);
+    ctx.bezierCurveTo(330, 280, 322, 400, 292, 470);
+    ctx.lineTo(252, 470);
+    ctx.bezierCurveTo(270, 380, 260, 280, 236, 220);
+    ctx.fill();
+    ctx.fillStyle = color;
+    if (spec.hairStyle === 'wavy') {
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(0, 0, 0, 0);
+      ctx.globalAlpha = 1;
     }
-    return coils.join('');
   }
-  const cap = `
-    <path d="M${left} 214
-      C${left - 6} 150 ${200 - p.crown - 10} 96 200 96
-      C${200 + p.crown + 10} 96 ${right + 6} 150 ${right} 214
-      C${right - 10} 176 ${200 + 20} 150 200 156
-      C${200 - 20} 150 ${left + 10} 176 ${left} 214 Z" fill="${color}" />
-    <path d="M${left + 16} 150 C${200 - 30} 118 ${200 + 10} 112 ${right - 20} 146" fill="none" stroke="${shade}" stroke-width="8" stroke-linecap="round" opacity="0.55" />`;
+  ctx.beginPath();
   if (spec.hairStyle === 'crop') {
-    return `
-      <path d="M${left + 10} 188 C${left} 140 ${200 - 20} 112 200 112 C${200 + 20} 112 ${right} 140 ${right - 10} 188
-        C${right - 24} 166 200 158 ${left + 24} 170 Z" fill="${color}" />`;
+    ctx.moveTo(left + 10, 200);
+    ctx.bezierCurveTo(left, 140, 170, 112, 200, 112);
+    ctx.bezierCurveTo(230, 112, right, 140, right - 10, 200);
+    ctx.bezierCurveTo(right - 20, 170, 220, 160, 200, 164);
+    ctx.bezierCurveTo(180, 160, left + 20, 170, left + 10, 200);
+  } else if (spec.hairStyle === 'coily' || spec.hairStyle === 'curly') {
+    const lift = spec.hairStyle === 'coily' ? 70 : 90;
+    ctx.moveTo(left - 6, 220);
+    ctx.bezierCurveTo(left - 30, 140, 150, lift, 200, lift - 6);
+    ctx.bezierCurveTo(250, lift, right + 30, 140, right + 6, 220);
+    ctx.bezierCurveTo(right, 160, 230, lift + 24, 200, lift + 30);
+    ctx.bezierCurveTo(170, lift + 24, left, 160, left - 6, 220);
+  } else {
+    ctx.moveTo(left, 216);
+    ctx.bezierCurveTo(left - 10, 150, 160, 96, 200, 96);
+    ctx.bezierCurveTo(240, 96, right + 10, 150, right, 216);
+    ctx.bezierCurveTo(right - 16, 170, 228, 156, 200, 160);
+    ctx.bezierCurveTo(172, 156, left + 16, 170, left, 216);
   }
+  ctx.fill();
   if (spec.hairStyle === 'bun') {
-    return `
-      ${cap}
-      <ellipse cx="214" cy="108" rx="28" ry="26" fill="${color}" />
-      <ellipse cx="214" cy="108" rx="28" ry="26" fill="none" stroke="${shade}" stroke-width="3" />
-      <path d="M${left + 20} 170 Q200 150 ${right - 16} 164" fill="none" stroke="${shade}" stroke-width="4" opacity="0.5" />`;
+    ellipse(ctx, 226, 104, 28, 26);
+    ctx.fillStyle = light;
+    ctx.globalAlpha = 0.35;
+    ellipse(ctx, 216, 96, 10, 7);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
   }
   if (spec.hairStyle === 'short') {
-    return `
-      ${cap}
-      <path d="M${left + 2} 210 C${left - 4} 250 ${left + 8} 268 ${left + 22} 260" fill="${color}" />
-      <path d="M${right - 2} 210 C${right + 4} 250 ${right - 8} 268 ${right - 22} 260" fill="${color}" />`;
+    ctx.beginPath();
+    ctx.moveTo(left, 200);
+    ctx.quadraticCurveTo(left - 8, 250, left + 22, 258);
+    ctx.quadraticCurveTo(left + 6, 230, left + 16, 200);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(right, 200);
+    ctx.quadraticCurveTo(right + 8, 250, right - 22, 258);
+    ctx.quadraticCurveTo(right - 6, 230, right - 16, 200);
+    ctx.fill();
   }
-  return cap;
+  ctx.strokeStyle = light;
+  ctx.globalAlpha = 0.4;
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(158, 132);
+  ctx.quadraticCurveTo(200, 108, 246, 130);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 
-function facialHair(spec: PortraitSpec, color: string): string {
-  if (spec.facialHair === 'none') return '';
+function facialHair(ctx: CanvasRenderingContext2D, spec: PortraitSpec, color: string) {
+  if (spec.facialHair === 'none') return;
+  ctx.fillStyle = color;
   if (spec.facialHair === 'stubble') {
-    const dots: string[] = [];
-    for (let y = 300; y <= 366; y += 6) {
-      for (let x = 154; x <= 246; x += 6) {
-        const dx = (x - 200) / 58;
-        const dy = (y - 338) / 36;
+    ctx.globalAlpha = 0.35;
+    for (let y = 308; y <= 362; y += 4) {
+      for (let x = 160; x <= 240; x += 4) {
+        const dx = (x - 200) / 48;
+        const dy = (y - 338) / 32;
         if (dx * dx + dy * dy > 1) continue;
-        if (y < 326 && Math.abs(x - 200) < 24) continue;
-        dots.push(`<circle cx="${x}" cy="${y}" r="1.05" fill="${color}" opacity="0.28" />`);
+        if (y < 330 && Math.abs(x - 200) < 16) continue;
+        ctx.fillRect(x, y, 1.2, 1.2);
       }
     }
-    return dots.join('');
+    ctx.globalAlpha = 1;
+    return;
   }
-  const mustache = `<path d="M172 324 Q186 312 200 322 Q214 312 228 324 Q214 330 200 326 Q186 330 172 324 Z" fill="${color}" />`;
-  if (spec.facialHair === 'mustache') return mustache;
+  ctx.beginPath();
+  ctx.moveTo(170, 328);
+  ctx.quadraticCurveTo(184, 314, 200, 324);
+  ctx.quadraticCurveTo(216, 314, 230, 328);
+  ctx.quadraticCurveTo(214, 334, 200, 328);
+  ctx.quadraticCurveTo(186, 334, 170, 328);
+  ctx.fill();
+  if (spec.facialHair === 'mustache') return;
   if (spec.facialHair === 'goatee') {
-    return `
-      ${mustache}
-      <path d="M176 348 C178 374 190 388 200 390 C210 388 222 374 224 348 C214 358 206 362 200 362 C194 362 186 358 176 348 Z" fill="${color}" />`;
+    ctx.beginPath();
+    ctx.moveTo(180, 350);
+    ctx.quadraticCurveTo(182, 378, 200, 386);
+    ctx.quadraticCurveTo(218, 378, 220, 350);
+    ctx.quadraticCurveTo(200, 362, 180, 350);
+    ctx.fill();
+    return;
   }
-  return `
-    <path d="M132 292 C126 318 138 336 148 340 L156 300 Z" fill="${color}" />
-    <path d="M268 292 C274 318 262 336 252 340 L244 300 Z" fill="${color}" />
-    <path d="M156 346 C154 378 174 398 200 402 C226 398 246 378 244 346 C226 364 214 370 200 370 C186 370 174 364 156 346 Z" fill="${color}" />
-    ${mustache}`;
+  ctx.globalAlpha = 0.92;
+  ctx.beginPath();
+  ctx.moveTo(138, 260);
+  ctx.quadraticCurveTo(126, 310, 154, 346);
+  ctx.quadraticCurveTo(148, 300, 164, 258);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(262, 260);
+  ctx.quadraticCurveTo(274, 310, 246, 346);
+  ctx.quadraticCurveTo(252, 300, 236, 258);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(160, 344);
+  ctx.quadraticCurveTo(162, 386, 200, 396);
+  ctx.quadraticCurveTo(238, 386, 240, 344);
+  ctx.quadraticCurveTo(200, 366, 160, 344);
+  ctx.fill();
+  ctx.globalAlpha = 1;
 }
 
-export function renderPortrait(spec: PortraitSpec, id = 'face'): string {
+function grain(ctx: CanvasRenderingContext2D) {
+  const image = ctx.getImageData(0, 0, 400, 500);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 5;
+    data[i] = Math.max(0, Math.min(255, data[i] + n));
+    data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + n));
+    data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + n));
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+export function paintPortrait(canvas: HTMLCanvasElement, spec: PortraitSpec): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
   const skin = skinHex(spec);
-  const skinLight = mix(skin, 0.22);
-  const skinDark = mix(skin, -0.28);
-  const hair = hairHex(spec);
-  const hairDark = mix(hair, -0.25);
+  const hairColor = hairHex(spec);
   const iris = eyeHex(spec);
   const shirt = shirtHex(spec);
-  const shirtDark = mix(shirt, -0.25);
-  const upper = lipColor(skin, 0);
-  const lower = lipColor(skin, 28);
-  const { r, g, b } = hexToRgb(skin);
-  const blush = rgbToHex(Math.min(255, r + 28), g * 0.72, b * 0.7);
-  const p = FACE[spec.face];
-  const earX = 200 - p.cheek - 4;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 500" role="img">
-  <defs>
-    <linearGradient id="${id}-bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#d7d1c6" />
-      <stop offset="100%" stop-color="#b9b3a6" />
-    </linearGradient>
-    <radialGradient id="${id}-skin" cx="36%" cy="30%" r="72%">
-      <stop offset="0%" stop-color="${skinLight}" />
-      <stop offset="48%" stop-color="${skin}" />
-      <stop offset="100%" stop-color="${skinDark}" />
-    </radialGradient>
-    <linearGradient id="${id}-shirt" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="${mix(shirt, 0.08)}" />
-      <stop offset="100%" stop-color="${shirtDark}" />
-    </linearGradient>
-  </defs>
-  <rect width="400" height="500" fill="url(#${id}-bg)" />
-  ${hairBack(spec, hair)}
-  <path d="M78 500 L108 392 C140 360 164 378 200 386 C236 378 260 360 292 392 L322 500 Z" fill="url(#${id}-shirt)" />
-  <path d="M168 392 Q200 430 232 392 L224 500 L176 500 Z" fill="${shirtDark}" />
-  <path d="M174 348 C170 372 166 392 162 408 L238 408 C234 392 230 372 226 348 Z" fill="url(#${id}-skin)" />
-  <g>
-    <ellipse cx="${earX}" cy="252" rx="16" ry="24" fill="${mix(skin, -0.08)}" />
-    <path d="M${earX + 4} 238 Q${earX - 4} 252 ${earX + 5} 270" fill="none" stroke="rgba(40,16,8,0.25)" stroke-width="2" />
-    <ellipse cx="${400 - earX}" cy="252" rx="16" ry="24" fill="${mix(skin, -0.16)}" />
-    <path d="M${400 - earX - 4} 238 Q${400 - earX + 4} 252 ${400 - earX - 5} 270" fill="none" stroke="rgba(40,16,8,0.28)" stroke-width="2" />
-  </g>
-  <path d="${headPath(spec)}" fill="url(#${id}-skin)" />
-  <ellipse cx="248" cy="250" rx="46" ry="78" fill="${skinDark}" opacity="0.16" />
-  <ellipse cx="156" cy="292" rx="24" ry="13" fill="${blush}" opacity="0.28" />
-  <ellipse cx="246" cy="296" rx="22" ry="12" fill="${blush}" opacity="0.2" />
-  <ellipse cx="200" cy="${348 + p.chin}" rx="54" ry="12" fill="rgba(40,16,8,0.12)" />
-  ${eye(164, iris, spec.eyeShape)}
-  ${eye(236, iris, spec.eyeShape)}
-  ${brows(spec, hair === '#ddd6cc' ? '#8a8175' : hairDark)}
-  ${nose(spec)}
-  ${mouth(spec, upper, lower)}
-  ${facialHair(spec, hair)}
-  ${hairFront(spec, hair, hairDark)}
-</svg>`;
-}
+  ctx.clearRect(0, 0, 400, 500);
+  const bg = ctx.createLinearGradient(0, 0, 0, 500);
+  bg.addColorStop(0, '#b9c6b6');
+  bg.addColorStop(0.6, '#d7d1c4');
+  bg.addColorStop(1, '#c3bdb0');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 400, 500);
 
-export function portraitMarkup(spec: PortraitSpec, seed: string): string {
-  const safe = seed.replace(/[^a-zA-Z0-9_-]/g, '') || 'face';
-  return renderPortrait(
-    {
-      ...spec,
-      skin: clampIndex(spec.skin, 9),
-      hairColor: clampIndex(spec.hairColor, 8),
-      eyeColor: clampIndex(spec.eyeColor, 6),
-    },
-    safe,
-  );
+  ctx.fillStyle = rgb(shirt, -0.2);
+  ctx.beginPath();
+  ctx.moveTo(96, 500);
+  ctx.lineTo(122, 400);
+  ctx.quadraticCurveTo(160, 368, 200, 392);
+  ctx.quadraticCurveTo(240, 368, 278, 400);
+  ctx.lineTo(304, 500);
+  ctx.fill();
+  ctx.fillStyle = shirt;
+  ctx.fillRect(176, 400, 48, 100);
+
+  const path = facePath(spec);
+  ctx.save();
+  ctx.fillStyle = rgb(skin, -0.08);
+  ctx.beginPath();
+  ctx.moveTo(176, 360);
+  ctx.quadraticCurveTo(170, 400, 166, 430);
+  ctx.lineTo(234, 430);
+  ctx.quadraticCurveTo(230, 400, 224, 360);
+  ctx.fill();
+  const p = FACE[spec.face];
+  const earX = 200 - p.cheek;
+  ctx.fillStyle = rgb(skin, -0.1);
+  ellipse(ctx, earX, 250, 13, 20);
+  ellipse(ctx, 400 - earX, 250, 13, 20);
+  ctx.fillStyle = skin;
+  ctx.fill(path);
+  ctx.clip(path);
+  const key = ctx.createRadialGradient(150, 170, 10, 210, 250, 190);
+  key.addColorStop(0, rgb(skin, 0.32));
+  key.addColorStop(0.45, skin);
+  key.addColorStop(1, rgb(skin, -0.38));
+  ctx.fillStyle = key;
+  ctx.fillRect(0, 0, 400, 500);
+  ctx.fillStyle = rgb(skin, -0.45);
+  ctx.globalAlpha = 0.22;
+  ellipse(ctx, 268, 250, 54, 100);
+  ctx.globalAlpha = 0.18;
+  ellipse(ctx, 162, 214, 30, 14);
+  ellipse(ctx, 238, 214, 30, 14);
+  ctx.fillStyle = `rgba(${hexToRgb(skin).r + 30}, ${hexToRgb(skin).g * 0.6}, ${hexToRgb(skin).b * 0.6}, 0.28)`;
+  ctx.globalAlpha = 1;
+  ellipse(ctx, 156, 292, 26, 14);
+  ctx.globalAlpha = 0.7;
+  ellipse(ctx, 246, 296, 22, 12);
+  ctx.globalAlpha = 0.16;
+  ctx.fillStyle = '#fff';
+  ellipse(ctx, 150, 168, 40, 22);
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  eye(ctx, 162, spec.eyeShape, iris, skin);
+  eye(ctx, 238, spec.eyeShape, iris, skin);
+  brows(ctx, spec, hairColor === '#ddd6cc' ? '#8a8176' : rgb(hairColor, -0.2));
+  nose(ctx, spec, skin);
+  mouth(ctx, spec, skin);
+  facialHair(ctx, spec, hairColor);
+  hair(ctx, spec, hairColor);
+  grain(ctx);
 }

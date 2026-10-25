@@ -1,8 +1,13 @@
-import { useMemo } from 'react';
+import { useEffect, useRef } from 'react';
 import { PortraitSpec } from '../portrait/palette';
-import { portraitMarkup } from '../portrait/render';
+import { paintPortrait } from '../portrait/render';
 
-export function Portrait({ spec, id }: { spec: PortraitSpec; id: string }) {
-  const markup = useMemo(() => portraitMarkup(spec, id), [spec, id]);
-  return <div className="portrait" dangerouslySetInnerHTML={{ __html: markup }} />;
+export function Portrait({ spec }: { spec: PortraitSpec; id: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    paintPortrait(canvas, spec);
+  }, [spec]);
+  return <canvas ref={ref} className="portrait-canvas" width={400} height={500} />;
 }

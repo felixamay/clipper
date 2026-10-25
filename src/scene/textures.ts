@@ -74,24 +74,64 @@ export function barkTexture(): THREE.CanvasTexture {
 }
 
 export function leafTexture(): THREE.CanvasTexture {
-  return canvasTexture(128, 128, (ctx) => {
-    ctx.clearRect(0, 0, 128, 128);
-    ctx.fillStyle = '#2f6a38';
-    ctx.beginPath();
-    ctx.ellipse(64, 64, 26, 52, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#1d4a26';
+  return canvasTexture(128, 160, (ctx) => {
+    ctx.clearRect(0, 0, 128, 160);
+    const leaf = new Path2D();
+    leaf.moveTo(64, 8);
+    leaf.bezierCurveTo(108, 36, 112, 96, 64, 150);
+    leaf.bezierCurveTo(16, 96, 20, 36, 64, 8);
+    const fill = ctx.createLinearGradient(20, 20, 100, 140);
+    fill.addColorStop(0, '#8fbf63');
+    fill.addColorStop(0.45, '#4f8d3e');
+    fill.addColorStop(1, '#2f6a32');
+    ctx.fillStyle = fill;
+    ctx.fill(leaf);
+    ctx.strokeStyle = '#24562c';
     ctx.lineWidth = 2;
+    ctx.stroke(leaf);
+    ctx.strokeStyle = '#d7e7b0';
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1.4;
     ctx.beginPath();
-    ctx.moveTo(64, 16);
-    ctx.lineTo(64, 112);
-    ctx.stroke();
-    ctx.globalAlpha = 0.35;
-    ctx.beginPath();
-    ctx.moveTo(64, 40);
-    ctx.lineTo(40, 58);
-    ctx.moveTo(64, 62);
-    ctx.lineTo(88, 78);
+    ctx.moveTo(64, 18);
+    ctx.lineTo(64, 142);
+    ctx.moveTo(64, 48);
+    ctx.lineTo(42, 64);
+    ctx.moveTo(64, 72);
+    ctx.lineTo(90, 90);
+    ctx.moveTo(64, 96);
+    ctx.lineTo(40, 112);
     ctx.stroke();
   });
+}
+
+export function dappleTexture(): THREE.CanvasTexture {
+  return canvasTexture(512, 512, (ctx) => {
+    ctx.clearRect(0, 0, 512, 512);
+    for (let i = 0; i < 36; i++) {
+      const x = Math.random() * 512;
+      const y = Math.random() * 512;
+      const rx = 28 + Math.random() * 70;
+      const ry = 16 + Math.random() * 40;
+      const grad = ctx.createRadialGradient(x, y, 4, x, y, rx);
+      grad.addColorStop(0, 'rgba(70, 90, 50, 0.16)');
+      grad.addColorStop(0.6, 'rgba(90, 110, 60, 0.07)');
+      grad.addColorStop(1, 'rgba(90, 110, 60, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (let i = 0; i < 18; i++) {
+      const x = Math.random() * 512;
+      const y = Math.random() * 512;
+      const grad = ctx.createRadialGradient(x, y, 2, x, y, 36);
+      grad.addColorStop(0, 'rgba(255, 236, 190, 0.16)');
+      grad.addColorStop(1, 'rgba(255, 236, 190, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, 36, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, 1);
 }
