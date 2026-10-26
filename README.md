@@ -15,6 +15,12 @@ npm run dev
 
 Open the URL Vite prints. It is usually http://localhost:5173.
 
+If you open the game through a forwarded or preview address instead of localhost, Vite will answer "Blocked request. This host is not allowed." Put that hostname in a `.env.local` file next to `package.json` and restart `npm run dev`:
+
+```bash
+CLIPPER_ALLOWED_HOSTS=my-box-5173.example.dev
+```
+
 ## Test
 
 ```bash
