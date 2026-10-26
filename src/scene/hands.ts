@@ -148,8 +148,79 @@ export function createHand(): HandRig {
   };
 }
 
+/** How far behind the photographed sleeve the arm is stretched, as a share of the photo's width. */
+const SLEEVE_STRETCH = 2.5;
+/** The photo lies this far above the pinch, so the fingers sit over the piece rather than through it. */
+const HOVER = 0.32;
+
+/**
+ * A photographed arm seen from above. Its root points +Z from shoulder to fingertips, like the
+ * drawn hand. The sleeve's last column is stretched backwards so the arm always reaches the
+ * table edge, where the clipping planes cut it off.
+ */
+export function createPhotoHand(
+  url: string,
+  aspect: number,
+  pinchAt: [number, number],
+  width: number,
+  clip: THREE.Plane[],
+): HandRig {
+  const root = new THREE.Group();
+  const length = width * aspect;
+  const geometry = new THREE.PlaneGeometry(length * (1 + SLEEVE_STRETCH), width);
+  const uv = geometry.getAttribute('uv');
+  for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * (1 + SLEEVE_STRETCH) - SLEEVE_STRETCH);
+  const centre = (1 - SLEEVE_STRETCH) / 2;
+  geometry.translate(-(pinchAt[0] - centre) * length, -(0.5 - pinchAt[1]) * width, 0);
+  // Photo right becomes +Z (the reach) and photo top becomes +X.
+  geometry.rotateX(-Math.PI / 2);
+  geometry.rotateY(-Math.PI / 2);
+
+  const texture = new THREE.TextureLoader().load(url);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    color: 0xece4d8,
+    transparent: true,
+    alphaTest: 0.04,
+    side: THREE.DoubleSide,
+    clippingPlanes: clip,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.y = HOVER;
+  mesh.castShadow = true;
+  mesh.customDepthMaterial = new THREE.MeshDepthMaterial({
+    depthPacking: THREE.RGBADepthPacking,
+    map: texture,
+    alphaTest: 0.5,
+    clippingPlanes: clip,
+  });
+  root.add(mesh);
+
+  const pinch = new THREE.Object3D();
+  root.add(pinch);
+
+  return {
+    root,
+    pinch,
+    setSkin: () => {},
+    setSleeve: () => {},
+    // A photograph cannot close its fingers; it dips a little as it grips instead.
+    setGrasp: (amount) => {
+      mesh.position.y = HOVER - THREE.MathUtils.clamp(amount, 0, 1) * 0.08;
+    },
+    dispose: () => {
+      geometry.dispose();
+      material.dispose();
+      mesh.customDepthMaterial?.dispose();
+      texture.dispose();
+    },
+  };
+}
+
 export function placeHand(rig: HandRig, target: THREE.Vector3, yaw: number, pitch: number, roll: number): void {
   rig.root.rotation.set(pitch, yaw, roll);
-  const offset = PINCH.clone().multiply(rig.root.scale).applyEuler(rig.root.rotation);
+  const offset = rig.pinch.position.clone().multiply(rig.root.scale).applyEuler(rig.root.rotation);
   rig.root.position.copy(target).sub(offset);
 }

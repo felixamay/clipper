@@ -137,6 +137,7 @@ export function Match({
     const scene = sceneRef.current;
     if (!scene) return;
     scene.setColors(skinHex(white.portrait), skinHex(black.portrait), shirtHex(white.portrait), shirtHex(black.portrait));
+    scene.setPlayers(white.photo, black.photo);
     const opening = cue.script ? scriptedGame(cue.script) : startGame();
     scene.reset(opening.board);
     setLiveState(opening);
@@ -303,8 +304,8 @@ export function Match({
         <>
           {white && black && (
             <div className="players">
-              <Player character={black} label="Dark" thinking={thinker?.side === 'black' ? thinker.since : null} paused={paused} />
               <Player character={white} label="Light" thinking={thinker?.side === 'white' ? thinker.since : null} paused={paused} />
+              <Player character={black} label="Dark" thinking={thinker?.side === 'black' ? thinker.since : null} paused={paused} />
             </div>
           )}
           <header className="hud-top" data-testid="live-hud">
