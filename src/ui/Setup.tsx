@@ -101,10 +101,15 @@ export function TournamentSetup({
 }) {
   const [format, setFormat] = useState<'single' | 'robin'>('single');
   const [games, setGames] = useState(1);
-  const [target, setTarget] = useState(4);
-  const [seated, setSeated] = useState<string[]>([]);
+  // The field opens already seated, up to four players drawn from the roster, so it can start at once.
+  const [target, setTarget] = useState(() => Math.max(2, Math.min(4, roster.length)));
+  const [seated, setSeated] = useState<string[]>(() => shuffle(roster).slice(0, 4).map((character) => character.id));
   const [addId, setAddId] = useState('');
-  const [note, setNote] = useState('Up to 64 players. Empty seats can be filled at random from the roster.');
+  const [note, setNote] = useState(
+    roster.length < 2
+      ? 'A tournament needs at least two players. Create some from the roster first.'
+      : 'Up to 64 players. Change the field size and fill the empty seats, or add and remove players below.',
+  );
   const available = useMemo(() => roster.filter((character) => !seated.includes(character.id)), [roster, seated]);
 
   const fill = () => {

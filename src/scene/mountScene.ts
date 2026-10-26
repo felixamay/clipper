@@ -3,18 +3,20 @@ import { Board, Color, Move } from '../engine/board';
 import { applyMove } from '../engine/moves';
 import { HandRig, createHand, placeHand } from './hands';
 import { PlayerCharacter, loadPlayerCharacter } from './character';
-import { PLAYER_MODELS } from './models';
+import { PlayerModel } from './models';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { dappleTexture, leafLightTexture, woodTexture } from './textures';
 
 const SQUARE = 1;
+/** A square is 4 cm, as on a tournament board, so everything at human scale is measured in these. */
+const METRE = 25;
 const BOARD_TOP = 0.5;
 /** Half the board's width, frame included. */
 const BOARD_HALF = 5.85;
-/** The board rests on a table: a square is 5 cm, so a 75 cm table is 15 squares tall. */
+/** The board rests on a 75 cm table. */
 const TABLE_TOP = 0.02;
-const TABLE_HEIGHT = 15;
-/** Half the table's length toward each player, and half its depth toward the camera: a 65 cm table, just wider than the board. */
+const TABLE_HEIGHT = 0.75 * METRE;
+/** Half the table's length toward each player, and half its depth toward the camera: a 52 cm table, just wider than the board, so a seated player reaches its far side. */
 const TABLE_X = 6.5;
 const TABLE_Z = 7;
 const FLOOR = TABLE_TOP - TABLE_HEIGHT;
@@ -23,15 +25,15 @@ const FLOOR = TABLE_TOP - TABLE_HEIGHT;
  * floor, 2.8 m back from the table, tipped down 24 degrees, 40 degree vertical view. Its open
  * patch of ground is where the table and players stand.
  */
-const EYE = new THREE.Vector3(0, FLOOR + 45, 56);
+const EYE = new THREE.Vector3(0, FLOOR + 2.25 * METRE, 2.8 * METRE);
 const EYE_PITCH = (24 * Math.PI) / 180;
 const EYE_FOV = 40;
 const BACKDROP_ASPECT = 2752 / 1536;
 /** The backdrop is drawn a little larger than the screen so the view can slide sideways for side panels. */
 const BACKDROP_SLACK = 1.06;
-/** A chair seat is 45 cm high, and its middle sits this far back from the table edge, so only the knees go under. */
-const SEAT_HEIGHT = 9;
-const SEAT_BACK = 5;
+/** A chair seat is 50 cm high, so a seated player's chest can lean out over the tabletop; its middle sits this far back from the table edge, so only the knees go under. */
+const SEAT_HEIGHT = 0.5 * METRE;
+const SEAT_BACK = 0.25 * METRE;
 function pitchFor(side: Color): number {
   return side === 'white' ? 0.12 : 0.14;
 }
@@ -46,8 +48,8 @@ export interface SceneHandle {
   playMove: (move: Move, side: Color, speed: () => number, paused: () => boolean) => Promise<void>;
   cancel: () => void;
   setShift: (amount: number) => void;
-  /** Seat the two players by their roster photos; a player without a seated photo is left out. */
-  setPlayers: (whitePhoto?: string, blackPhoto?: string) => void;
+  /** Seat the two players in their rigged bodies; a side without one plays with the hidden guide hand. */
+  setPlayers: (white?: PlayerModel, black?: PlayerModel) => void;
   dispose: () => void;
 }
 
@@ -150,12 +152,12 @@ export function mountScene(host: HTMLElement): SceneHandle {
   const leafLight = leafLightTexture();
   const sun = new THREE.SpotLight(0xffeccc, 4.2, 0, 0.5, 0.5, 0);
   sun.map = leafLight;
-  sun.position.set(14, 72, 22);
-  sun.target.position.set(0, FLOOR + 8, 0);
+  sun.position.set(0.7 * METRE, 3.6 * METRE, 1.1 * METRE);
+  sun.target.position.set(0, FLOOR + 0.4 * METRE, 0);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.near = 30;
-  sun.shadow.camera.far = 120;
+  sun.shadow.camera.near = 1.5 * METRE;
+  sun.shadow.camera.far = 6 * METRE;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.06;
   scene.add(sun);
@@ -164,7 +166,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
   fill.position.set(-5, 6, 6);
   scene.add(fill);
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.ShadowMaterial({ opacity: 0.32 }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(4 * METRE, 4 * METRE), new THREE.ShadowMaterial({ opacity: 0.32 }));
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = FLOOR;
   ground.receiveShadow = true;
@@ -287,8 +289,9 @@ export function mountScene(host: HTMLElement): SceneHandle {
     ],
     36,
   );
+  // Light's men are lacquered red, so they stand out from the pale squares as well as from dark's.
   const lightWood = new THREE.MeshPhysicalMaterial({
-    color: 0xf0d0a4,
+    color: 0xb3261e,
     roughness: 0.38,
     metalness: 0.04,
     clearcoat: 0.45,
@@ -342,7 +345,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
     }
   };
 
-  // Without a seated photo the drawn rigs stay hidden and only guide the pieces.
+  // Without a seated body the drawn rigs stay hidden and only guide the pieces.
   const drawnHands: Record<Color, HandRig> = { white: createHand(), black: createHand() };
   for (const rig of Object.values(drawnHands)) {
     rig.root.scale.setScalar(1.35);
@@ -365,12 +368,14 @@ export function mountScene(host: HTMLElement): SceneHandle {
       mesh.receiveShadow = true;
       chair.add(mesh);
     };
-    part(8.6, 0.7, 8.6, 0, FLOOR + SEAT_HEIGHT - 0.35, 0);
-    for (const lx of [-3.8, 3.8]) for (const lz of [-3.8, 3.8]) part(0.7, SEAT_HEIGHT - 0.7, 0.7, lx, FLOOR + (SEAT_HEIGHT - 0.7) / 2, lz);
-    const back = sign * 3.95;
-    for (const lz of [-3.8, 3.8]) part(0.7, 9, 0.7, back, FLOOR + SEAT_HEIGHT + 4.5, lz);
-    part(0.5, 2.2, 8.2, back, FLOOR + SEAT_HEIGHT + 7.6, 0);
-    part(0.5, 1.4, 8.2, back, FLOOR + SEAT_HEIGHT + 3.8, 0);
+    // Measured in metres: a 43 cm seat, 3.5 cm thick, on 3.5 cm legs, with a 45 cm back of two rails.
+    const m = (metres: number) => metres * METRE;
+    part(m(0.43), m(0.035), m(0.43), 0, FLOOR + SEAT_HEIGHT - m(0.0175), 0);
+    for (const lx of [-m(0.19), m(0.19)]) for (const lz of [-m(0.19), m(0.19)]) part(m(0.035), SEAT_HEIGHT - m(0.035), m(0.035), lx, FLOOR + (SEAT_HEIGHT - m(0.035)) / 2, lz);
+    const back = sign * m(0.2);
+    for (const lz of [-m(0.19), m(0.19)]) part(m(0.035), m(0.45), m(0.035), back, FLOOR + SEAT_HEIGHT + m(0.225), lz);
+    part(m(0.025), m(0.11), m(0.41), back, FLOOR + SEAT_HEIGHT + m(0.38), 0);
+    part(m(0.025), m(0.07), m(0.41), back, FLOOR + SEAT_HEIGHT + m(0.19), 0);
     chair.position.x = x;
     return chair;
   };
@@ -415,8 +420,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
     }
     hands[side] = drawnHands[side];
   };
-  const seatCharacter = (side: Color, photo: string) => {
-    const model = PLAYER_MODELS[photo];
+  const seatCharacter = (side: Color, model: PlayerModel) => {
     const sign = sideSign(side);
     const seatX = sign * (TABLE_X + SEAT_BACK);
     const chair = buildChair(seatX, sign);
@@ -426,7 +430,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
     loadPlayerCharacter(`${import.meta.env.BASE_URL}${model.model}`, {
       seat: new THREE.Vector3(seatX, FLOOR + SEAT_HEIGHT, 0),
       facing: new THREE.Vector3(-sign, 0, 0),
-      scale: 20,
+      scale: METRE,
       tableTop: TABLE_TOP,
       edgeAhead: SEAT_BACK,
       boardTop: BOARD_TOP,
@@ -458,11 +462,10 @@ export function mountScene(host: HTMLElement): SceneHandle {
       })
       .catch((error) => console.error('Could not load player model', error));
   };
-  const seatPlayer = (side: Color, photo?: string) => {
+  const seatPlayer = (side: Color, model?: PlayerModel) => {
     clearSeat(side);
     seatToken[side]++;
-    // Starter players have rigged models; anyone else plays with the hidden guide hand.
-    if (photo && PLAYER_MODELS[photo]) seatCharacter(side, photo);
+    if (model) seatCharacter(side, model);
   };
   parkHands();
 
@@ -732,9 +735,9 @@ export function mountScene(host: HTMLElement): SceneHandle {
       drawnHands.white.setSleeve(whiteSleeve);
       drawnHands.black.setSleeve(blackSleeve);
     },
-    setPlayers: (whitePhoto, blackPhoto) => {
-      seatPlayer('white', whitePhoto);
-      seatPlayer('black', blackPhoto);
+    setPlayers: (white, black) => {
+      seatPlayer('white', white);
+      seatPlayer('black', black);
       parkHands();
     },
     playMove,

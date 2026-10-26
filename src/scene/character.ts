@@ -93,7 +93,7 @@ export interface SeatSpec {
 }
 
 /** How far the chest, shoulders and neck stay above whatever is under them, in metres; a leaning head comes close. */
-const CLEARANCE = { chest: 0.1, shoulder: 0.06, neck: 0.05 };
+const CLEARANCE = { chest: 0.1, shoulder: 0.08, neck: 0.05 };
 /** How far the front of the body sits in front of the spine, in metres, from the hips up to the chest; and the upper arm's radius. */
 const TORSO_DEPTH = { spine_01: 0.14, spine_02: 0.13, spine_03: 0.12, arm: 0.055 };
 
@@ -222,9 +222,9 @@ export async function loadPlayerCharacter(url: string, spec: SeatSpec): Promise<
   const arms: Record<Hand, Arm> = { l: armOf('l'), r: armOf('r') };
   // The hand doing the moving; chosen as each reach begins and kept until the arm is home again.
   let reaching: Hand = 'r';
-  // How far each arm is propped on the table edge rather than resting on the thigh; the idle arm props.
-  const propBlend: Record<Hand, number> = { l: 1, r: 0 };
   const startPose = new Map<THREE.Bone, THREE.Quaternion>();
+  // How far the last seated pose had to slide back on the chair to keep clear of the table.
+  let slidBack = 0;
   const surfacePoint = new THREE.Vector3();
   /** How far an arm's surface dips into the board or table, at its deepest point. */
   const armDip = (from: Sample[], step: number) => {
@@ -234,6 +234,8 @@ export async function loadPlayerCharacter(url: string, spec: SeatSpec): Promise<
       const { mesh, index } = from[i];
       // The body's shape comes from morph targets on a shared base mesh, so take the morphed, skinned vertex.
       mesh.getVertexPosition(index, surfacePoint).applyMatrix4(mesh.matrixWorld);
+      // Below the tabletop and its apron is the open space under the table, where the lap goes.
+      if (surfacePoint.y < spec.tableTop - 0.12 * metres) continue;
       dip = Math.max(dip, floorUnder(surfacePoint) + 0.002 * metres - surfacePoint.y);
     }
     return dip;
@@ -248,22 +250,18 @@ export async function loadPlayerCharacter(url: string, spec: SeatSpec): Promise<
     // Put the pelvis on the seat.
     const pelvis = worldPos(bones.pelvis);
     root.position.y += spec.seat.y - pelvis.y + 0.04 * metres;
-    // Scoot forward on the seat when stretching for a far square, and rise a little off it for the
-    // farthest ones, so the chest can go out over the table rather than into its edge.
-    const rise = THREE.MathUtils.smoothstep(leanAmount, 0.35, 1);
+    // Scoot forward on the seat when stretching for a far square; the player never rises off it.
     root.position.addScaledVector(facing, (-0.06 + 0.1 * leanAmount) * metres);
-    root.position.y += 0.32 * metres * rise;
     root.updateMatrixWorld(true);
     const bend = (base: THREE.Vector3, amount: number) =>
       lean && leanAmount > 0 ? base.normalize().lerp(lean.clone().multiplyScalar(1.25).add(up).normalize(), leanAmount * amount) : base;
     // Tip the hips forward first; the legs are re-aimed below, so they stay put.
     aimBone(bones.pelvis, bones.spine_01, bend(dir(0.12, 1, 0), 0.4));
     // Legs: thighs forward along the seat, shins down to the floor.
-    // Rising, the thighs tip down toward the knees and the shins come back under them.
-    aimBone(bones.thigh_l, bones.calf_l, dir(1, -0.08 - 1.7 * rise, 0.12));
-    aimBone(bones.thigh_r, bones.calf_r, dir(1, -0.08 - 1.7 * rise, -0.12));
-    aimBone(bones.calf_l, bones.foot_l, dir(0.12 - 0.5 * rise, -1, 0.04));
-    aimBone(bones.calf_r, bones.foot_r, dir(0.12 - 0.5 * rise, -1, -0.04));
+    aimBone(bones.thigh_l, bones.calf_l, dir(1, -0.08, 0.12));
+    aimBone(bones.thigh_r, bones.calf_r, dir(1, -0.08, -0.12));
+    aimBone(bones.calf_l, bones.foot_l, dir(0.12, -1, 0.04));
+    aimBone(bones.calf_r, bones.foot_r, dir(0.12, -1, -0.04));
     // Torso leans in over the table, breathing gently, and bends toward a far square to reach it.
     aimBone(bones.spine_01, bones.spine_02, bend(dir(0.28 + sway * 0.02, 1, sway * 0.03), 0.8));
     aimBone(bones.spine_02, bones.spine_03, bend(dir(0.32, 1 + breath * 0.02, 0), 1));
@@ -273,42 +271,37 @@ export async function loadPlayerCharacter(url: string, spec: SeatSpec): Promise<
       const front = (bone: THREE.Bone, depth: number) => worldPos(bone).sub(spec.seat).dot(facing) + depth * metres;
       const gap = spec.edgeAhead - 0.01 * metres - Math.max(front(bones.spine_01, TORSO_DEPTH.spine_01), front(bones.spine_02, TORSO_DEPTH.spine_02));
       if (gap > 0) {
-        root.position.addScaledVector(facing, Math.min(gap, 0.16 * metres) * leanAmount);
+        root.position.addScaledVector(facing, Math.min(gap, 0.22 * metres) * leanAmount);
         root.updateMatrixWorld(true);
       }
     }
     // The reaching shoulder rolls forward toward the square.
     const mover = arms[reaching];
-    if (lean && leanAmount > 0) aimBone(mover.clavicle, mover.upper, lean.clone().multiplyScalar(0.6).addScaledVector(side, mover.out), leanAmount * 0.5);
-    // The idle forearm rests on the table edge, as board players sit; the moving arm starts from the thigh.
-    // At rest the elbow hangs a little back, clear of the table's underside.
-    // Propped, the forearm lies along the table's edge across the body, off the board.
+    if (lean && leanAmount > 0) aimBone(mover.clavicle, mover.upper, lean.clone().multiplyScalar(1.2).addScaledVector(side, mover.out), leanAmount * 0.9);
+    // Both hands rest in the lap, well back from the table, and the moving one starts from there.
     for (const arm of [arms.l, arms.r]) {
-      const prop = propBlend[arm === arms.l ? 'l' : 'r'];
-      aimBone(arm.upper, arm.lower, dir(-0.06, -1, 0.12 * arm.out).normalize().lerp(dir(0.55, -0.8, 0.3 * arm.out).normalize(), prop));
-      aimBone(arm.lower, arm.hand, dir(1, -0.85, -0.08 * arm.out).normalize().lerp(dir(0.3, 0.04, -arm.out).normalize(), prop));
-      // A propped forearm rests on the table rather than sinking into it: tip it up until it clears.
-      for (let lift = 0; lift < 6 && prop > 0; lift++) {
-        const dip = armDip(arm.all, arm.stride);
-        if (dip <= 0.002 * metres) break;
-        const elbow = worldPos(arm.lower);
-        const hand = worldPos(arm.hand);
-        if (elbow.y - 0.04 * metres < floorUnder(elbow)) {
-          const shoulder = worldPos(arm.upper);
-          aimBone(arm.upper, arm.lower, elbow.clone().addScaledVector(up, dip * 1.3).sub(shoulder));
-        }
-        const elbowNow = worldPos(arm.lower);
-        aimBone(arm.lower, arm.hand, hand.addScaledVector(up, dip * 1.3).sub(elbowNow));
+      aimBone(arm.upper, arm.lower, dir(0.12, -1, 0.06 * arm.out));
+      aimBone(arm.lower, arm.hand, dir(0.75, -0.45, -0.55 * arm.out));
+      // Leaning in brings the lap forward toward the table: draw the elbow back, then turn the forearm in
+      // across the lap, until both are back from the edge.
+      const behind = (bone: THREE.Bone) => worldPos(bone).sub(spec.seat).dot(facing) - (spec.edgeAhead - 0.06 * metres);
+      for (let tuck = 0; tuck < 4 && behind(arm.lower) > 0; tuck++) {
+        aimBone(arm.upper, arm.lower, dir(0.12 - 0.35 * (tuck + 1), -1, 0.06 * arm.out));
+        aimBone(arm.lower, arm.hand, dir(0.75, -0.45, -0.55 * arm.out));
+      }
+      for (let tuck = 0; tuck < 4; tuck++) {
+        const ahead = worldPos(arm.hand).sub(spec.seat).dot(facing) - (spec.edgeAhead - 0.06 * metres);
+        if (ahead <= 0) break;
+        aimBone(arm.lower, arm.hand, dir(0.75 - 0.3 * (tuck + 1), -0.45, -0.55 * arm.out));
       }
     }
-    // Whatever still touches the table or board, the chest or a resting arm, means sitting too
-    // close: slide back on the chair until it clears.
-    const resting = [arms.l, arms.r].filter((arm) => propBlend[arm === arms.l ? 'l' : 'r'] > 0.5);
+    // Whatever still touches the table or board means sitting too close: slide back on the chair until it clears.
+    slidBack = 0;
     for (let back = 0; back < 6; back++) {
-      let dip = armDip(torsoSamples, torsoStride);
-      for (const arm of resting) dip = Math.max(dip, armDip(arm.all, arm.stride), armDip(arm.upperArm, arm.upperArmStride));
+      const dip = armDip(torsoSamples, torsoStride);
       if (dip <= 0.003 * metres) break;
       root.position.addScaledVector(facing, -(dip * 1.5 + 0.005 * metres));
+      slidBack += dip * 1.5 + 0.005 * metres;
       root.updateMatrixWorld(true);
     }
     // The moving arm's pose before it reaches, for each solve to start again from.
@@ -384,11 +377,6 @@ export async function loadPlayerCharacter(url: string, spec: SeatSpec): Promise<
     if (reachTarget && reachBlend < 0.02) reaching = reachTarget.clone().sub(spec.seat).dot(side) > 0 ? 'l' : 'r';
     reachBlend += (wantReach - reachBlend) * Math.min(1, dt * 9);
     const mover = arms[reaching];
-    for (const hand of ['l', 'r'] as const) {
-      const want = hand === reaching ? 1 - reachBlend : 1;
-      // The moving arm leaves the table edge as fast as it reaches; the other one settles onto it.
-      propBlend[hand] = hand === reaching ? want : propBlend[hand] + (want - propBlend[hand]) * Math.min(1, dt * 4);
-    }
     // How far past an easy seated reach the target lies decides how much the body leans in.
     let lean: THREE.Vector3 | null = null;
     let leanAmount = 0;
@@ -411,8 +399,7 @@ export async function loadPlayerCharacter(url: string, spec: SeatSpec): Promise<
       const chest = worldPos(bones.spine_03);
       const neck = worldPos(bones.neck_01);
       const above = (p: THREE.Vector3, clearance: number) => p.y > floorUnder(p) + clearance * metres;
-      // Nothing at table height may push into the table's edge: the front of the belly and chest,
-      // and the resting left arm, all stay behind it.
+      // Nothing at table height may push into the table's edge: the front of the belly and chest stay behind it.
       // The front surface sits `depth` ahead of the bone at the same height, with a few centimetres of
       // body below it; it may hang over the table as long as that stays above the tabletop.
       const behindEdge = (p: THREE.Vector3, depth: number) =>
@@ -420,12 +407,11 @@ export async function loadPlayerCharacter(url: string, spec: SeatSpec): Promise<
       const torsoClear =
         behindEdge(worldPos(bones.spine_01), TORSO_DEPTH.spine_01) &&
         behindEdge(worldPos(bones.spine_02), TORSO_DEPTH.spine_02) &&
-        behindEdge(chest, TORSO_DEPTH.spine_03) &&
-        behindEdge(worldPos(bones.lowerarm_l), TORSO_DEPTH.arm) &&
-        behindEdge(worldPos(bones.upperarm_l).lerp(worldPos(bones.lowerarm_l), 0.5), TORSO_DEPTH.arm);
+        behindEdge(chest, TORSO_DEPTH.spine_03);
       // The skin of the chest, shoulders and upper arms must stay out of the table and board.
-      if (armDip(torsoSamples, torsoStride) > 0.003 * metres) return false;
-      return shoulder.y > spec.tableTop + 0.1 * metres && bellyClear && torsoClear && above(chest, CLEARANCE.chest) && above(neck, CLEARANCE.neck) && above(shoulder, CLEARANCE.shoulder);
+      // A lean that only clears by sliding well back on the chair gains nothing; lean less instead.
+      if (slidBack > 0.03 * metres) return false;
+      return bellyClear && torsoClear && above(chest, CLEARANCE.chest) && above(neck, CLEARANCE.neck) && above(shoulder, CLEARANCE.shoulder);
     };
     if (leanAmount > 0.02 && !clear(leanAmount)) {
       let lo = 0;

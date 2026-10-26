@@ -76,15 +76,6 @@ export function shirtHex(spec: PortraitSpec): string {
   return SHIRTS[index];
 }
 
-export function strengthLabel(depth: number): string {
-  if (depth <= 3) return 'Casual';
-  if (depth === 4) return 'Club';
-  if (depth === 5) return 'Seasoned';
-  if (depth === 6) return 'Sharp';
-  if (depth === 7) return 'Expert';
-  return 'Master';
-}
-
 export function noiseForDepth(depth: number): number {
   return Math.max(1, 22 - depth * 2);
 }

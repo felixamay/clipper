@@ -12,8 +12,6 @@ import {
   NOSES,
   PortraitSpec,
   SKIN_TONES,
-  noiseForDepth,
-  strengthLabel,
 } from '../portrait/palette';
 import { Portrait } from './Portrait';
 
@@ -27,10 +25,9 @@ const CHOICES: Array<{ key: keyof PortraitSpec; label: string; options: readonly
   { key: 'facialHair', label: 'Facial hair', options: FACIAL_HAIR },
 ];
 
-export function Creator({ onSave, onCancel }: { onSave: (name: string, portrait: PortraitSpec, depth: number) => void; onCancel: () => void }) {
+export function Creator({ onSave, onCancel }: { onSave: (name: string, portrait: PortraitSpec) => void; onCancel: () => void }) {
   const [name, setName] = useState('');
   const [portrait, setPortrait] = useState<PortraitSpec>(DEFAULT_PORTRAIT);
-  const [depth, setDepth] = useState(5);
 
   return (
     <div className="card-center">
@@ -39,13 +36,12 @@ export function Creator({ onSave, onCancel }: { onSave: (name: string, portrait:
         onSubmit={(event) => {
           event.preventDefault();
           if (!name.trim()) return;
-          onSave(name, portrait, depth);
+          onSave(name, portrait);
         }}
       >
         <div className="creator-grid">
           <div>
             <Portrait spec={portrait} id="draft" />
-            <p className="quiet dark">{strengthLabel(depth)} · searches {depth} ahead, noise {noiseForDepth(depth)}</p>
           </div>
           <div>
             <h2>New character</h2>
@@ -107,16 +103,6 @@ export function Creator({ onSave, onCancel }: { onSave: (name: string, portrait:
                 </select>
               </label>
             ))}
-            <label className="field dark-field">
-              Strength
-              <input
-                type="range"
-                min={3}
-                max={8}
-                value={depth}
-                onChange={(event) => setDepth(Number(event.target.value))}
-              />
-            </label>
             <div className="actions">
               <button className="btn paper" type="submit" disabled={!name.trim()}>
                 Save character

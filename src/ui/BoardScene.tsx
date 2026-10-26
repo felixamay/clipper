@@ -25,7 +25,7 @@ export const BoardScene = forwardRef<SceneHandle>(function BoardScene(_props, re
     playMove: (move, side, speed, paused) => api.current?.playMove(move, side, speed, paused) ?? Promise.resolve(),
     cancel: () => api.current?.cancel(),
     setShift: (amount) => api.current?.setShift(amount),
-    setPlayers: (whitePhoto, blackPhoto) => api.current?.setPlayers(whitePhoto, blackPhoto),
+    setPlayers: (white, black) => api.current?.setPlayers(white, black),
     dispose: () => api.current?.dispose(),
   }));
 
