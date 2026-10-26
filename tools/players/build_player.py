@@ -96,6 +96,25 @@ for mod in list(basemesh.modifiers):
     basemesh.modifiers.remove(mod)
     print('MASKED', mod.name if False else group.name, len(doomed), 'verts removed')
 
+# None of the trousers carry "hide the body" data, so seated knees poke through them. Under any
+# trousers, delete the skin of the thighs and shins outright.
+if any(word in item['name'] for item in spec.get('clothes', []) for word in ('pants', 'trousers', 'jeans')):
+    legs = {g.index for g in basemesh.vertex_groups if g.name in ('thigh_l', 'thigh_r', 'calf_l', 'calf_r')}
+    # Only the skeleton's own weight groups count; the mesh also carries helper groups like "body".
+    bone_groups = {g.index for g in basemesh.vertex_groups if rig and g.name in rig.data.bones}
+    doomed = set()
+    for v in basemesh.data.vertices:
+        weights = [g for g in v.groups if g.group in bone_groups]
+        if weights and max(weights, key=lambda g: g.weight).group in legs:
+            doomed.add(v.index)
+    bm = bmesh.new()
+    bm.from_mesh(basemesh.data)
+    bm.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[bm.verts[i] for i in doomed], context='VERTS')
+    bm.to_mesh(basemesh.data)
+    bm.free()
+    print('LEGS', len(doomed), 'verts removed under trousers')
+
 # Solid skin, eyes and cloth; cut-out edges for hair, brows and lashes. Blended transparency
 # draws in the wrong order in the browser and lets the skin show through the shirt.
 for obj in bpy.data.objects:

@@ -9,11 +9,13 @@ import { dappleTexture, leafLightTexture, woodTexture } from './textures';
 
 const SQUARE = 1;
 const BOARD_TOP = 0.5;
+/** Half the board's width, frame included. */
+const BOARD_HALF = 5.85;
 /** The board rests on a table: a square is 5 cm, so a 75 cm table is 15 squares tall. */
 const TABLE_TOP = 0.02;
 const TABLE_HEIGHT = 15;
-/** Half the table's length toward each player, and half its depth toward the camera: an 80 cm table. */
-const TABLE_X = 8;
+/** Half the table's length toward each player, and half its depth toward the camera: a 65 cm table, just wider than the board. */
+const TABLE_X = 6.5;
 const TABLE_Z = 7;
 const FLOOR = TABLE_TOP - TABLE_HEIGHT;
 /**
@@ -29,7 +31,7 @@ const BACKDROP_ASPECT = 2752 / 1536;
 const BACKDROP_SLACK = 1.06;
 /** A chair seat is 45 cm high, and its middle sits this far back from the table edge, so only the knees go under. */
 const SEAT_HEIGHT = 9;
-const SEAT_BACK = 7;
+const SEAT_BACK = 5;
 function pitchFor(side: Color): number {
   return side === 'white' ? 0.12 : 0.14;
 }
@@ -380,9 +382,12 @@ export function mountScene(host: HTMLElement): SceneHandle {
         ? new THREE.Vector3(0.7, 0.74, 2.15)
         : new THREE.Vector3(-0.35, 0.8, -0.85);
   const rollFor = (side: Color) => (side === 'white' ? 0 : 0);
+  // Where the moving hand was last sent; a seated player's carried piece follows this planned path.
+  const handTarget = new THREE.Vector3();
   const poseHand = (side: Color, target: THREE.Vector3, grasp: number) => {
     const character = characters[side];
     if (character) {
+      if (anim && anim.side === side) handTarget.copy(target);
       character.reachFor(anim && anim.side === side ? target : null, grasp);
       return;
     }
@@ -424,6 +429,8 @@ export function mountScene(host: HTMLElement): SceneHandle {
       scale: 20,
       tableTop: TABLE_TOP,
       edgeAhead: SEAT_BACK,
+      boardTop: BOARD_TOP,
+      boardHalf: BOARD_HALF,
     })
       .then((character) => {
         if (dead || token !== seatToken[side]) {
@@ -470,7 +477,14 @@ export function mountScene(host: HTMLElement): SceneHandle {
     active.root.updateMatrixWorld(true);
     const point = new THREE.Vector3();
     active.pinch.getWorldPosition(point);
-    moving.position.set(point.x, point.y - 0.11, point.z);
+    // A carried piece never sinks below the board, even if the fingertips dip a little as they set it down.
+    // A seated player pushes with the index fingertip on top of the piece, and the piece keeps to the
+    // move's path even where the reach falls a little short; the guide hand pinches it.
+    if (anim && characters[anim.side]) {
+      moving.position.set(handTarget.x, Math.max(BOARD_TOP, handTarget.y - 0.16), handTarget.z);
+    } else {
+      moving.position.set(point.x, Math.max(BOARD_TOP, point.y - 0.11), point.z);
+    }
     moving.rotation.x = 0;
     moving.rotation.z = 0;
   };
@@ -615,7 +629,8 @@ export function mountScene(host: HTMLElement): SceneHandle {
       const start = new THREE.Vector3();
       hand.root.updateMatrixWorld(true);
       hand.pinch.getWorldPosition(start);
-      const targets = move.path.map((square) => squareToWorld(square, BOARD_TOP + 0.18));
+      const touch = characters[side] ? 0.17 : 0.18;
+      const targets = move.path.map((square) => squareToWorld(square, BOARD_TOP + touch));
       const phases: Phase[] = [];
       const pose = (target: THREE.Vector3, grasp: number) => poseHand(side, target, grasp);
       phases.push({
@@ -666,7 +681,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
           },
         });
       }
-      const landing = squareToWorld(move.path[move.path.length - 1], BOARD_TOP + 0.16);
+      const landing = squareToWorld(move.path[move.path.length - 1], BOARD_TOP + (characters[side] ? 0.17 : 0.16));
       const hover = landing.clone();
       hover.y += 0.42;
       phases.push({
