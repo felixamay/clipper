@@ -13,6 +13,7 @@ import {
   PortraitSpec,
   SKIN_TONES,
 } from '../portrait/palette';
+import { bodyFor } from '../scene/bodies';
 import { Portrait } from './Portrait';
 
 const CHOICES: Array<{ key: keyof PortraitSpec; label: string; options: readonly string[] }> = [
@@ -41,7 +42,7 @@ export function Creator({ onSave, onCancel }: { onSave: (name: string, portrait:
       >
         <div className="creator-grid">
           <div>
-            <Portrait spec={portrait} id="draft" />
+            <Portrait spec={portrait} body={bodyFor({ portrait })} id="draft" />
           </div>
           <div>
             <h2>New character</h2>

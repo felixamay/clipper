@@ -1,4 +1,5 @@
 import { Character } from '../domain/character';
+import { bodyFor } from '../scene/bodies';
 import { ScriptName } from '../domain/scripts';
 import { Portrait } from './Portrait';
 import { Records } from './Records';
@@ -43,7 +44,7 @@ export function Home({
       <div className="roster-grid">
         {roster.map((character) => (
           <article className="person" key={character.id}>
-            <Portrait spec={character.portrait} photo={character.photo} name={character.name} id={character.id} />
+            <Portrait spec={character.portrait} body={bodyFor(character)} name={character.name} id={character.id} />
             <h3>{character.name}</h3>
             <Records record={character.record} />
           </article>

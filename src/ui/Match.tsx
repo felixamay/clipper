@@ -12,7 +12,7 @@ import { bodyFor } from '../scene/bodies';
 import { SceneHandle } from '../scene/mountScene';
 import { BracketMatch, RobinMatch, roundLabel, seriesOutcome, standings } from '../tournament/tournament';
 import { requestMove, stopSearch } from '../worker/client';
-import { Portrait, photoUrl } from './Portrait';
+import { Portrait } from './Portrait';
 import { Records } from './Records';
 
 function explain(state: GameState, white: Character, black: Character): string {
@@ -340,7 +340,7 @@ function Seat({ character, side }: { character: Character; side: string }) {
   return (
     <div className="seat">
       <p className="side">{side}</p>
-      <Portrait spec={character.portrait} photo={character.photo} name={character.name} id={`${character.id}-card`} />
+      <Portrait spec={character.portrait} body={bodyFor(character)} name={character.name} id={`${character.id}-card`} />
       <h3>{character.name}</h3>
       <Records record={character.record} />
     </div>
@@ -369,11 +369,7 @@ function Player({
   return (
     <figure className={className} data-testid={`player-${label.toLowerCase()}`}>
       <div className="player-frame">
-        {character.photo ? (
-          <img src={photoUrl(character.photo)} alt={character.name} />
-        ) : (
-          <Portrait spec={character.portrait} name={character.name} id={`${character.id}-live`} />
-        )}
+        <Portrait spec={character.portrait} body={bodyFor(character)} name={character.name} id={`${character.id}-live`} />
       </div>
       <figcaption>
         <strong>{character.name}</strong>

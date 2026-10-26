@@ -3,6 +3,7 @@ import { Board, Color, Move } from '../engine/board';
 import { applyMove } from '../engine/moves';
 import { HandRig, createHand, placeHand } from './hands';
 import { PlayerCharacter, loadPlayerCharacter } from './character';
+import { dress } from './bodies';
 import { PlayerModel } from './models';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { dappleTexture, leafLightTexture, woodTexture } from './textures';
@@ -441,14 +442,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
           character.dispose();
           return;
         }
-        character.root.traverse((obj) => {
-          const mesh = obj as THREE.Mesh;
-          if (!mesh.isMesh) return;
-          const name = mesh.name.toLowerCase();
-          // `skin` tints the body itself, which exports under the bare name "Human".
-          const tint = Object.entries(model.tints).find(([fragment]) => (fragment === 'skin' ? name === 'human' : name.includes(fragment)));
-          if (tint) (mesh.material as THREE.MeshStandardMaterial).color.set(tint[1]);
-        });
+        dress(character.root, model);
         characters[side] = character;
         scene.add(character.root, character.pinch);
         hands[side] = {
