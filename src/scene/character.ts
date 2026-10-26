@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 /**
  * A rigged MakeHuman player who sits at the table and moves pieces with their own hands, the left for
@@ -78,6 +79,22 @@ function loader(): GLTFLoader {
   return shared;
 }
 
+/**
+ * Each player's model, downloaded and decoded once; every seating after that is a copy of it, so a
+ * new game seats its players straight away and never depends on the network again. A failed
+ * download is forgotten, so the next attempt fetches it afresh.
+ */
+const models = new Map<string, Promise<GLTF>>();
+function loadModel(url: string): Promise<GLTF> {
+  let pending = models.get(url);
+  if (!pending) {
+    pending = loader().loadAsync(url);
+    models.set(url, pending);
+    pending.catch(() => models.delete(url));
+  }
+  return pending;
+}
+
 export interface SeatSpec {
   /** Where the middle of the seat is, in world units, and which way the player faces. */
   seat: THREE.Vector3;
@@ -98,8 +115,9 @@ const CLEARANCE = { chest: 0.1, shoulder: 0.08, neck: 0.05 };
 const TORSO_DEPTH = { spine_01: 0.14, spine_02: 0.13, spine_03: 0.12, arm: 0.055 };
 
 export async function loadPlayerCharacter(url: string, spec: SeatSpec): Promise<PlayerCharacter> {
-  const gltf = await loader().loadAsync(url);
-  const model = gltf.scene;
+  // A copy with its own skeleton and its own materials, so each seat poses and tints independently;
+  // the geometry and textures stay shared with the downloaded original.
+  const model = cloneSkinned((await loadModel(url)).scene);
   const root = new THREE.Group();
   root.add(model);
   model.scale.setScalar(spec.scale);
@@ -113,6 +131,7 @@ export async function loadPlayerCharacter(url: string, spec: SeatSpec): Promise<
     // lets the skin show through the shirt. Skin, eyes and cloth are solid; hair, brows and
     // lashes keep cut-out edges.
     const cutout = /hair|eyebrow|eyelash|short0|long0|bob0|afro|braid|ponytail/i.test(mesh.name);
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map((material) => material.clone()) : mesh.material.clone();
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const material of materials) {
       material.transparent = false;
@@ -491,16 +510,13 @@ export async function loadPlayerCharacter(url: string, spec: SeatSpec): Promise<
     },
     lookAt: (target) => gaze.copy(target),
     update: pose,
+    // Only this seat's own materials go; the shared geometry and textures stay for the next game.
     dispose: () => {
       model.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
         if (!mesh.isMesh) return;
-        mesh.geometry.dispose();
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        for (const material of materials) {
-          for (const value of Object.values(material)) if (value instanceof THREE.Texture) value.dispose();
-          material.dispose();
-        }
+        for (const material of materials) material.dispose();
       });
     },
   };

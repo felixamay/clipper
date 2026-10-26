@@ -460,7 +460,13 @@ export function mountScene(host: HTMLElement): SceneHandle {
           dispose: () => {},
         };
       })
-      .catch((error) => console.error('Could not load player model', error));
+      .catch((error) => {
+        console.error('Could not load player model', error);
+        // Try again shortly, unless the seat has been given to someone else meanwhile.
+        window.setTimeout(() => {
+          if (!dead && token === seatToken[side]) seatPlayer(side, model);
+        }, 2000);
+      });
   };
   const seatPlayer = (side: Color, model?: PlayerModel) => {
     clearSeat(side);
