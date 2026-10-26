@@ -8,7 +8,7 @@ interface Finger {
 }
 
 export interface HandRig {
-  root: THREE.Group;
+  root: THREE.Object3D;
   pinch: THREE.Object3D;
   setSkin: (hex: string) => void;
   setSleeve: (hex: string) => void;
@@ -148,72 +148,98 @@ export function createHand(): HandRig {
   };
 }
 
-/** How far behind the photographed sleeve the arm is stretched, as a share of the photo's width. */
-const SLEEVE_STRETCH = 2.5;
-/** The photo lies this far above the pinch, so the fingers sit over the piece rather than through it. */
-const HOVER = 0.32;
+/** Where the photographed hand starts, back from the pinch, as a share of the arm photo's width. */
+const HAND_SHARE = 0.36;
+/** The fingers hover this far above the pinch, so they sit over the piece rather than through it. */
+const HOVER = 0.3;
+
+export interface ArmRig {
+  root: THREE.Mesh;
+  /** Follows the fingertips, for the piece being carried. */
+  pinch: THREE.Object3D;
+  /** Lay the arm from the shoulder to the pinch point, turned to face the eye. */
+  reach: (shoulder: THREE.Vector3, target: THREE.Vector3, eye: THREE.Vector3, grasp: number) => void;
+  setOpacity: (amount: number) => void;
+  dispose: () => void;
+}
 
 /**
- * A photographed arm seen from above. Its root points +Z from shoulder to fingertips, like the
- * drawn hand. The sleeve's last column is stretched backwards so the arm always reaches the
- * table edge, where the clipping planes cut it off.
+ * A photographed arm that runs from the player's shoulder to the piece in one piece. The hand
+ * keeps its photographed size; the sleeve and upper arm stretch to cover the rest of the reach.
+ * `flip` mirrors it into a left arm for the player on the right.
  */
-export function createPhotoHand(
-  url: string,
-  aspect: number,
-  pinchAt: [number, number],
-  width: number,
-  clip: THREE.Plane[],
-): HandRig {
-  const root = new THREE.Group();
+export function createPhotoArm(url: string, aspect: number, pinchAt: [number, number], width: number, flip: boolean): ArmRig {
   const length = width * aspect;
-  const geometry = new THREE.PlaneGeometry(length * (1 + SLEEVE_STRETCH), width);
-  const uv = geometry.getAttribute('uv');
-  for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * (1 + SLEEVE_STRETCH) - SLEEVE_STRETCH);
-  const centre = (1 - SLEEVE_STRETCH) / 2;
-  geometry.translate(-(pinchAt[0] - centre) * length, -(0.5 - pinchAt[1]) * width, 0);
-  // Photo right becomes +Z (the reach) and photo top becomes +X.
-  geometry.rotateX(-Math.PI / 2);
-  geometry.rotateY(-Math.PI / 2);
+  const [pinchU, pinchV] = pinchAt;
+  const wristU = Math.max(0.05, pinchU - HAND_SHARE);
+  const geometry = new THREE.BufferGeometry();
+  // Three rungs across the arm: shoulder, wrist, fingertips.
+  const positions = new Float32Array(6 * 3);
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const top = flip ? 0 : 1;
+  geometry.setAttribute(
+    'uv',
+    new THREE.BufferAttribute(new Float32Array([0, top, 0, 1 - top, wristU, top, wristU, 1 - top, 1, top, 1, 1 - top]), 2),
+  );
+  geometry.setIndex([0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5]);
 
   const texture = new THREE.TextureLoader().load(url);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 8;
   const material = new THREE.MeshBasicMaterial({
     map: texture,
-    color: 0xece4d8,
+    color: 0xe6ded2,
     transparent: true,
     alphaTest: 0.04,
     side: THREE.DoubleSide,
-    clippingPlanes: clip,
+    depthWrite: false,
   });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.y = HOVER;
-  mesh.castShadow = true;
-  mesh.customDepthMaterial = new THREE.MeshDepthMaterial({
-    depthPacking: THREE.RGBADepthPacking,
-    map: texture,
-    alphaTest: 0.5,
-    clippingPlanes: clip,
-  });
-  root.add(mesh);
-
+  const root = new THREE.Mesh(geometry, material);
+  root.frustumCulled = false;
+  root.renderOrder = 2;
+  root.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: texture, alphaTest: 0.5 });
   const pinch = new THREE.Object3D();
-  root.add(pinch);
+
+  const dir = new THREE.Vector3();
+  const across = new THREE.Vector3();
+  const toEye = new THREE.Vector3();
+  const rung = (index: number, at: THREE.Vector3) => {
+    // Top of the photo on one side of the line through the pinch, bottom on the other.
+    const above = at.clone().addScaledVector(across, pinchV * width);
+    const below = at.clone().addScaledVector(across, -(1 - pinchV) * width);
+    positions.set([above.x, above.y, above.z, below.x, below.y, below.z], index * 6);
+  };
 
   return {
     root,
     pinch,
-    setSkin: () => {},
-    setSleeve: () => {},
-    // A photograph cannot close its fingers; it dips a little as it grips instead.
-    setGrasp: (amount) => {
-      mesh.position.y = HOVER - THREE.MathUtils.clamp(amount, 0, 1) * 0.08;
+    reach: (shoulder, target, eye, grasp) => {
+      const tip = target.clone();
+      tip.y += HOVER - THREE.MathUtils.clamp(grasp, 0, 1) * 0.08;
+      pinch.position.copy(target);
+      dir.subVectors(tip, shoulder);
+      const span = Math.max(0.001, dir.length());
+      dir.divideScalar(span);
+      toEye.subVectors(eye, tip).normalize();
+      across.crossVectors(dir, toEye).normalize();
+      if (flip) across.negate();
+      const handLength = Math.min((pinchU - wristU) * length, span * 0.7);
+      const wrist = tip.clone().addScaledVector(dir, -handLength);
+      const fingertips = tip.clone().addScaledVector(dir, (1 - pinchU) * length);
+      rung(0, shoulder);
+      rung(1, wrist);
+      rung(2, fingertips);
+      geometry.getAttribute('position').needsUpdate = true;
+    },
+    setOpacity: (amount) => {
+      material.opacity = amount;
+      root.visible = amount > 0.01;
+      root.castShadow = amount > 0.5;
     },
     dispose: () => {
       geometry.dispose();
       material.dispose();
-      mesh.customDepthMaterial?.dispose();
+      root.customDepthMaterial?.dispose();
       texture.dispose();
     },
   };

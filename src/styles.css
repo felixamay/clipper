@@ -24,7 +24,7 @@ button { cursor: pointer; }
   position: fixed;
   inset: 0;
   z-index: 0;
-  background: #6b5a44 url('/scene/seated-tree.jpg') center 38% / cover no-repeat;
+  background: #6b5a44 url('/scene/ring-tree.jpg') center / cover no-repeat;
 }
 .scene-host canvas { display: block; width: 100%; height: 100%; }
 

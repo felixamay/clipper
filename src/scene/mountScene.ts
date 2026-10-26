@@ -1,30 +1,40 @@
 import * as THREE from 'three';
 import { Board, Color, Move } from '../engine/board';
 import { applyMove } from '../engine/moves';
-import { HandRig, createHand, createPhotoHand, placeHand } from './hands';
+import { ArmRig, HandRig, createHand, createPhotoArm, placeHand } from './hands';
 import { PLAYER_RIGS } from './photos';
 import { dappleTexture, woodTexture } from './textures';
 
 const SQUARE = 1;
 const BOARD_TOP = 0.5;
-/** The board rests on a table: a square is about 4.5 cm, so a 75 cm table is about 17 squares tall. */
+/** The board rests on a table: a square is 5 cm, so a 75 cm table is 15 squares tall. */
 const TABLE_TOP = 0.02;
-const TABLE_HEIGHT = 17;
+const TABLE_HEIGHT = 15;
 /** Half the table's length toward each player, and half its depth toward the camera. */
 const TABLE_X = 9;
-const TABLE_Z = 7.5;
+const TABLE_Z = 7;
 const FLOOR = TABLE_TOP - TABLE_HEIGHT;
-/** Width of a photographed forearm, in squares. */
-const ARM_WIDTH = 2.9;
+/** A seated adult, head to feet, about 1.25 m. */
+const SEATED_HEIGHT = 25;
+/** Width of the photographed arm strip, in squares. */
+const ARM_WIDTH = 2.5;
+/**
+ * The backdrop photo was made from a layout rendered with exactly this camera: 2.25 m above the
+ * floor, 2.8 m back from the table, tipped down 24 degrees, 40 degree vertical view. Its open
+ * patch of ground is where the table and players stand.
+ */
+const EYE = new THREE.Vector3(0, FLOOR + 45, 56);
+const EYE_PITCH = (24 * Math.PI) / 180;
+const EYE_FOV = 40;
+const BACKDROP_ASPECT = 2752 / 1536;
+/** The backdrop is drawn a little larger than the screen so the view can slide sideways for side panels. */
+const BACKDROP_SLACK = 1.06;
 function pitchFor(side: Color): number {
   return side === 'white' ? 0.12 : 0.14;
 }
 /** Light sits on the left of the table and dark on the right, each reaching in with the right hand. */
 function sideSign(side: Color): number {
   return side === 'white' ? -1 : 1;
-}
-function shoulderFor(side: Color): THREE.Vector3 {
-  return new THREE.Vector3(sideSign(side) * (TABLE_X + 1.2), 0, 1.6);
 }
 
 export interface SceneHandle {
@@ -106,13 +116,23 @@ export function mountScene(host: HTMLElement): SceneHandle {
   host.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 80);
+  const camera = new THREE.PerspectiveCamera(EYE_FOV, BACKDROP_ASPECT, 0.5, 400);
   let shift = 0;
 
   const applyCamera = () => {
-    // Far enough back to take in both players at the table, with the seated crowd showing above them.
-    camera.position.set(0.3 + shift * 3, 17, 45);
-    camera.lookAt(shift * 0.8, -2.2, -2);
+    const width = host.clientWidth || 1;
+    const height = host.clientHeight || 1;
+    // Crop the camera's frame exactly as the backdrop is cropped, so the two stay registered.
+    const fullHeight = (width / height > BACKDROP_ASPECT ? width / BACKDROP_ASPECT : height) * BACKDROP_SLACK;
+    const fullWidth = fullHeight * BACKDROP_ASPECT;
+    const left = ((fullWidth - width) / 2) * (1 + THREE.MathUtils.clamp(shift, -1, 1));
+    const top = (fullHeight - height) / 2;
+    camera.position.copy(EYE);
+    camera.rotation.set(-EYE_PITCH, 0, 0);
+    camera.setViewOffset(fullWidth, fullHeight, left, top, width, height);
+    camera.updateProjectionMatrix();
+    host.style.backgroundSize = `${fullWidth}px ${fullHeight}px`;
+    host.style.backgroundPosition = `${-left}px ${-top}px`;
   };
   applyCamera();
 
@@ -321,24 +341,43 @@ export function mountScene(host: HTMLElement): SceneHandle {
     scene.add(rig.root);
   }
   const hands: Record<Color, HandRig> = { ...drawnHands };
-  const photoHands: Partial<Record<Color, HandRig>> = {};
+  const arms: Partial<Record<Color, ArmRig>> = {};
+  const armOpacity: Record<Color, number> = { white: 0, black: 0 };
+  const shoulders: Partial<Record<Color, THREE.Vector3>> = {};
   const seats: Partial<Record<Color, THREE.Mesh>> = {};
+  const seatShadows: Partial<Record<Color, THREE.Mesh>> = {};
+  // A soft dark patch under each chair, since a photograph cannot cast a shadow of its own.
+  const contactTexture = (() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const glow = ctx.createRadialGradient(64, 64, 4, 64, 64, 64);
+      glow.addColorStop(0, 'rgba(20, 14, 8, 0.75)');
+      glow.addColorStop(1, 'rgba(20, 14, 8, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, 128, 128);
+    }
+    return new THREE.CanvasTexture(canvas);
+  })();
+  const contactGeometry = new THREE.PlaneGeometry(1, 1);
+  contactGeometry.rotateX(-Math.PI / 2);
   const restFor = (side: Color) =>
-    photoHands[side]
-      ? new THREE.Vector3(sideSign(side) * (TABLE_X - 2.4), TABLE_TOP + 0.1, 2.6)
+    arms[side]
+      ? new THREE.Vector3(sideSign(side) * (TABLE_X - 1.5), TABLE_TOP + 0.4, 2.2)
       : side === 'white'
         ? new THREE.Vector3(0.7, 0.74, 2.15)
         : new THREE.Vector3(-0.35, 0.8, -0.85);
   const rollFor = (side: Color) => (side === 'white' ? 0 : 0);
   const poseHand = (side: Color, target: THREE.Vector3, grasp: number) => {
-    const rig = hands[side];
-    if (photoHands[side]) {
-      // The photographed arm swings from the shoulder toward the square it reaches for.
-      const from = shoulderFor(side);
-      placeHand(rig, target, Math.atan2(target.x - from.x, target.z - from.z), 0, 0);
-    } else {
-      placeHand(rig, target, yawFor(side, target), pitchFor(side), rollFor(side));
+    const arm = arms[side];
+    const shoulder = shoulders[side];
+    if (arm && shoulder) {
+      arm.reach(shoulder, target, camera.position, grasp);
+      return;
     }
+    const rig = hands[side];
+    placeHand(rig, target, yawFor(side, target), pitchFor(side), rollFor(side));
     rig.setGrasp(grasp);
   };
   const parkHands = () => {
@@ -357,12 +396,20 @@ export function mountScene(host: HTMLElement): SceneHandle {
       material.dispose();
       delete seats[side];
     }
-    const photoHand = photoHands[side];
-    if (photoHand) {
-      scene.remove(photoHand.root);
-      photoHand.dispose();
-      delete photoHands[side];
+    const shadow = seatShadows[side];
+    if (shadow) {
+      scene.remove(shadow);
+      (shadow.material as THREE.Material).dispose();
+      delete seatShadows[side];
     }
+    const arm = arms[side];
+    if (arm) {
+      scene.remove(arm.root, arm.pinch);
+      arm.dispose();
+      delete arms[side];
+    }
+    delete shoulders[side];
+    armOpacity[side] = 0;
     hands[side] = drawnHands[side];
   };
   const seatPlayer = (side: Color, photo?: string) => {
@@ -371,36 +418,49 @@ export function mountScene(host: HTMLElement): SceneHandle {
     if (!rig) return;
     const sign = sideSign(side);
     const base = import.meta.env.BASE_URL;
-    // The photo is scaled so its tabletop line meets this table and its feet the floor.
-    const height = TABLE_HEIGHT / (1 - rig.table);
-    const width = height * rig.seatedAspect;
+    const width = SEATED_HEIGHT * rig.seatedAspect;
     const texture = loader.load(`${base}${rig.seated}`);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
-    // Above the tabletop the person ends at the table edge, where the photographed arm takes over.
-    const edge = sign * TABLE_X;
     const seat = new THREE.Mesh(
-      new THREE.PlaneGeometry(width, height),
-      new THREE.MeshBasicMaterial({
-        map: texture,
-        color: 0xe6ded2,
-        transparent: true,
-        alphaTest: 0.04,
-        clippingPlanes: [new THREE.Plane(new THREE.Vector3(sign, 0, 0), -edge * sign), new THREE.Plane(new THREE.Vector3(0, -1, 0), TABLE_TOP)],
-        clipIntersection: true,
-      }),
+      new THREE.PlaneGeometry(width, SEATED_HEIGHT),
+      new THREE.MeshBasicMaterial({ map: texture, color: 0xe6ded2, transparent: true, alphaTest: 0.04 }),
     );
+    // The player on the right is the mirror image, facing left.
     seat.scale.x = -sign;
-    seat.position.set(edge + sign * (rig.edge - 0.5) * width, TABLE_TOP + (rig.table - 0.5) * height, -0.4);
+    // Knees just under the table edge, feet on the floor, and the photo tipped back to face the
+    // raised camera it was taken from.
+    const centreY = FLOOR + SEATED_HEIGHT / 2;
+    seat.position.set(sign * (TABLE_X - 1.2) + sign * (rig.knee - 0.5) * width, centreY, 0);
+    seat.rotation.x = -Math.atan2(EYE.y - centreY, EYE.z);
     seats[side] = seat;
     scene.add(seat);
+    seat.updateMatrixWorld(true);
+    const shadow = new THREE.Mesh(
+      contactGeometry,
+      new THREE.MeshBasicMaterial({ map: contactTexture, transparent: true, depthWrite: false }),
+    );
+    shadow.scale.set(width * 0.95, 1, 9);
+    shadow.position.set(seat.position.x, FLOOR + 0.05, 1);
+    seatShadows[side] = shadow;
+    scene.add(shadow);
+    // The near shoulder, a little in front of the photo so the arm comes out of the body.
+    shoulders[side] = seat.localToWorld(
+      new THREE.Vector3((rig.shoulder[0] - 0.5) * width, (0.5 - rig.shoulder[1]) * SEATED_HEIGHT, 1.2),
+    );
 
-    const hand = createPhotoHand(`${base}${rig.hand}`, rig.handAspect, rig.pinch, ARM_WIDTH, [
-      new THREE.Plane(new THREE.Vector3(-sign, 0, 0), edge * sign),
-    ]);
-    photoHands[side] = hand;
-    hands[side] = hand;
-    scene.add(hand.root);
+    const arm = createPhotoArm(`${base}${rig.hand}`, rig.handAspect, rig.pinch, ARM_WIDTH, side === 'black');
+    arm.setOpacity(0);
+    arms[side] = arm;
+    scene.add(arm.root, arm.pinch);
+    hands[side] = {
+      root: arm.pinch,
+      pinch: arm.pinch,
+      setSkin: () => {},
+      setSleeve: () => {},
+      setGrasp: () => {},
+      dispose: () => {},
+    };
   };
   parkHands();
 
@@ -479,6 +539,14 @@ export function mountScene(host: HTMLElement): SceneHandle {
       blackTarget.y += Math.sin(clock * 1.5 + 1.2) * 0.025;
       poseHand('black', blackTarget, 0.06);
     }
+    // A photographed arm only shows while its player is reaching for a piece.
+    for (const side of ['white', 'black'] as const) {
+      const arm = arms[side];
+      if (!arm) continue;
+      const want = anim && anim.side === side ? 1 : 0;
+      armOpacity[side] += (want - armOpacity[side]) * Math.min(1, dt * 7);
+      arm.setOpacity(armOpacity[side]);
+    }
     for (let i = removals.length - 1; i >= 0; i--) {
       const removal = removals[i];
       removal.elapsed += dt;
@@ -509,9 +577,8 @@ export function mountScene(host: HTMLElement): SceneHandle {
   const resize = () => {
     const width = host.clientWidth || 1;
     const height = host.clientHeight || 1;
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
     renderer.setSize(width, height);
+    applyCamera();
   };
   const observer = new ResizeObserver(resize);
   observer.observe(host);
@@ -671,6 +738,8 @@ export function mountScene(host: HTMLElement): SceneHandle {
       observer.disconnect();
       clearSeat('white');
       clearSeat('black');
+      contactTexture.dispose();
+      contactGeometry.dispose();
       drawnHands.white.dispose();
       drawnHands.black.dispose();
       renderer.dispose();
