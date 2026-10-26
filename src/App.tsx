@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { createCasual } from './domain/event';
 import { PlayEvent } from './domain/event';
+import { PLAY } from './domain/character';
 import { addCharacter, useRoster } from './domain/storage';
 import { ScriptName } from './domain/scripts';
 import { initialBoard } from './engine/board';
 import { PortraitSpec, shirtHex, skinHex } from './portrait/palette';
+import { bodyFor } from './scene/bodies';
 import { SceneHandle } from './scene/mountScene';
 import { BoardScene } from './ui/BoardScene';
 import { Creator } from './ui/Creator';
@@ -43,7 +45,7 @@ export default function App() {
       shirtHex(pair[0].portrait),
       shirtHex(pair[1].portrait),
     );
-    scene.setPlayers(pair[0].photo, pair[1].photo);
+    scene.setPlayers(bodyFor(pair[0]), bodyFor(pair[1]));
     scene.reset(initialBoard());
     scene.setShift(0);
   }, [screen.type, roster]);
@@ -70,13 +72,13 @@ export default function App() {
       {screen.type === 'create' && (
         <Creator
           onCancel={() => setScreen({ type: 'home' })}
-          onSave={(name: string, portrait: PortraitSpec, depth: number) => {
+          onSave={(name: string, portrait: PortraitSpec) => {
             addCharacter({
               id: `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
               name: name.replace(/\s+/g, ' ').trim().slice(0, 28),
               portrait,
-              depth: Math.max(3, Math.min(8, Math.round(depth))),
-              noise: Math.max(1, 22 - Math.round(depth) * 2),
+              depth: PLAY.depth,
+              noise: PLAY.noise,
               record: { played: 0, wins: 0, losses: 0, draws: 0 },
             });
             setScreen({ type: 'home' });

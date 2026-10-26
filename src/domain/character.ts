@@ -1,4 +1,4 @@
-import { PortraitSpec, noiseForDepth, strengthLabel } from '../portrait/palette';
+import { PortraitSpec, noiseForDepth } from '../portrait/palette';
 
 export interface RecordBook {
   played: number;
@@ -35,9 +35,12 @@ export function saltFromId(id: string): number {
   return hash >>> 0;
 }
 
-export function describeStrength(character: Pick<Character, 'depth' | 'noise'>): string {
-  return `${strengthLabel(character.depth)} · depth ${character.depth}, noise ${character.noise}`;
-}
+/**
+ * How every player reads the board. Nobody is set up to be stronger than anyone else: each sees
+ * as far ahead and misjudges by as much, and those misjudgements land differently every game,
+ * so a game is won by the moves made in it.
+ */
+export const PLAY = { depth: 6, noise: 8 } as const;
 
 export function characterFromDraft(name: string, portrait: PortraitSpec, depth: number): Character {
   const clean = name.replace(/\s+/g, ' ').trim().slice(0, 28);

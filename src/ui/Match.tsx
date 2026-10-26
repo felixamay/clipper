@@ -1,5 +1,5 @@
 import { RefObject, useEffect, useRef, useState } from 'react';
-import { Character, saltFromId } from '../domain/character';
+import { Character, PLAY, saltFromId } from '../domain/character';
 import { Cue, PlayEvent, currentCue, pushResult } from '../domain/event';
 import { PACE, PaceName, humanThinkMs, waitRemaining } from '../domain/pace';
 import { scriptNote, scriptedGame } from '../domain/scripts';
@@ -8,10 +8,11 @@ import { Color, describeMove } from '../engine/board';
 import { GameState, resultOf, startGame, afterMove } from '../engine/game';
 import { legalMoves, sameMove } from '../engine/moves';
 import { shirtHex, skinHex } from '../portrait/palette';
+import { bodyFor } from '../scene/bodies';
 import { SceneHandle } from '../scene/mountScene';
 import { BracketMatch, RobinMatch, roundLabel, seriesOutcome, standings } from '../tournament/tournament';
 import { requestMove, stopSearch } from '../worker/client';
-import { Portrait, photoUrl } from './Portrait';
+import { Portrait } from './Portrait';
 import { Records } from './Records';
 
 function explain(state: GameState, white: Character, black: Character): string {
@@ -137,7 +138,7 @@ export function Match({
     const scene = sceneRef.current;
     if (!scene) return;
     scene.setColors(skinHex(white.portrait), skinHex(black.portrait), shirtHex(white.portrait), shirtHex(black.portrait));
-    scene.setPlayers(white.photo, black.photo);
+    scene.setPlayers(bodyFor(white), bodyFor(black));
     const opening = cue.script ? scriptedGame(cue.script) : startGame();
     scene.reset(opening.board);
     setLiveState(opening);
@@ -187,6 +188,7 @@ export function Match({
     const scene = sceneRef.current;
     if (!scene) return;
     let state = active.script ? scriptedGame(active.script) : startGame();
+    const gameSeed = (Math.random() * 2 ** 32) >>> 0;
     scene.reset(state.board);
     setLiveState(state);
     let ply = 0;
@@ -208,9 +210,10 @@ export function Match({
       const move = await requestMove({
         board: state.board,
         turn: state.turn,
-        depth: player.depth,
-        noise: player.noise,
-        salt: saltFromId(player.id),
+        depth: PLAY.depth,
+        noise: PLAY.noise,
+        // The same for everyone, but drawn afresh each game, so nobody repeats the same slips.
+        salt: (saltFromId(player.id) ^ gameSeed) >>> 0,
         timeMs: PACE[paceRef.current].search,
         noProgress: state.noProgress,
         seen,
@@ -258,7 +261,7 @@ export function Match({
   return (
     <div className={phase === 'live' ? 'overlay' : 'overlay dim'}>
       {showDock && (
-        <aside className="dock">
+        <aside className={phase === 'live' ? 'dock compact' : 'dock'}>
           <h2>{event.mode === 'single' ? 'Bracket' : 'Standings'}</h2>
           {event.bracket && <Bracket slots={event.bracket} currentId={event.matchId} roster={rosterNow} />}
           {event.robin && <Table matches={event.robin} players={event.players} roster={rosterNow} />}
@@ -273,7 +276,7 @@ export function Match({
             {event.lastDetail && phase === 'card' && <p className="note">{event.lastDetail}</p>}
             {phase === 'over' && <p className="note">{headline}</p>}
             <div className="pair">
-              <Seat character={white} side="White · light wood" />
+              <Seat character={white} side="White · red" />
               <p className="vs">vs</p>
               <Seat character={black} side="Black · dark wood" />
             </div>
@@ -304,12 +307,12 @@ export function Match({
         <>
           {white && black && (
             <div className="players">
-              <Player character={white} label="Light" thinking={thinker?.side === 'white' ? thinker.since : null} paused={paused} />
+              <Player character={white} label="Red" thinking={thinker?.side === 'white' ? thinker.since : null} paused={paused} />
               <Player character={black} label="Dark" thinking={thinker?.side === 'black' ? thinker.since : null} paused={paused} />
             </div>
           )}
           <header className="hud-top" data-testid="live-hud">
-            <span>{white?.name} · light</span>
+            <span>{white?.name} · red</span>
             <span>{banner}</span>
             <span>{black?.name} · dark</span>
           </header>
@@ -337,7 +340,7 @@ function Seat({ character, side }: { character: Character; side: string }) {
   return (
     <div className="seat">
       <p className="side">{side}</p>
-      <Portrait spec={character.portrait} photo={character.photo} name={character.name} id={`${character.id}-card`} />
+      <Portrait spec={character.portrait} body={bodyFor(character)} name={character.name} id={`${character.id}-card`} />
       <h3>{character.name}</h3>
       <Records record={character.record} />
     </div>
@@ -366,11 +369,7 @@ function Player({
   return (
     <figure className={className} data-testid={`player-${label.toLowerCase()}`}>
       <div className="player-frame">
-        {character.photo ? (
-          <img src={photoUrl(character.photo)} alt={character.name} />
-        ) : (
-          <Portrait spec={character.portrait} name={character.name} id={`${character.id}-live`} />
-        )}
+        <Portrait spec={character.portrait} body={bodyFor(character)} name={character.name} id={`${character.id}-live`} />
       </div>
       <figcaption>
         <strong>{character.name}</strong>
