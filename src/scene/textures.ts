@@ -148,3 +148,33 @@ export function dappleTexture(): THREE.CanvasTexture {
     }
   }, 1);
 }
+
+/**
+ * Sunlight broken up by leaves, for a light to project: mostly soft shade with bright patches
+ * where the sun gets through the canopy.
+ */
+export function leafLightTexture(): THREE.CanvasTexture {
+  return canvasTexture(512, 512, (ctx) => {
+    ctx.fillStyle = 'rgb(92, 92, 88)';
+    ctx.fillRect(0, 0, 512, 512);
+    let seed = 0x7e21;
+    const next = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    for (let i = 0; i < 90; i++) {
+      const x = next() * 512;
+      const y = next() * 512;
+      const rx = 8 + next() * 30;
+      const ry = 5 + next() * 18;
+      const grad = ctx.createRadialGradient(x, y, 1, x, y, rx);
+      grad.addColorStop(0, 'rgba(255, 246, 226, 0.95)');
+      grad.addColorStop(0.55, 'rgba(255, 246, 226, 0.6)');
+      grad.addColorStop(1, 'rgba(255, 246, 226, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, next() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, 1);
+}
