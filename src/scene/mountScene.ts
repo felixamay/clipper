@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Board, Color, Move } from '../engine/board';
 import { applyMove } from '../engine/moves';
 import { HandRig, createHand, placeHand } from './hands';
-import { barkTexture, dappleTexture, grassTexture, leafTexture, woodTexture } from './textures';
+import { dappleTexture, woodTexture } from './textures';
 
 const SQUARE = 1;
 const BOARD_TOP = 0.5;
@@ -72,7 +72,7 @@ interface Removal {
 }
 
 export function mountScene(host: HTMLElement): SceneHandle {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
   renderer.setSize(host.clientWidth || 1, host.clientHeight || 1);
   renderer.shadowMap.enabled = true;
@@ -80,17 +80,18 @@ export function mountScene(host: HTMLElement): SceneHandle {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.setClearColor(0xa9c3cc);
+  // The photograph of the square under the tree sits behind the canvas.
+  renderer.setClearColor(0x000000, 0);
   host.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xb7c6bf, 14, 34);
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 80);
   let shift = 0;
 
   const applyCamera = () => {
-    camera.position.set(0.3 + shift, 8.2, 12.4);
-    camera.lookAt(shift * 0.25, 0.2, -0.2);
+    // Far enough back that the board sits low in the frame and the crowd under the tree shows above it.
+    camera.position.set(0.3 + shift, 8.6, 19.5);
+    camera.lookAt(shift * 0.25, 3.4, -2.5);
   };
   applyCamera();
 
@@ -113,31 +114,10 @@ export function mountScene(host: HTMLElement): SceneHandle {
   fill.position.set(-5, 6, 6);
   scene.add(fill);
 
-  const grass = new THREE.Mesh(
-    new THREE.CircleGeometry(26, 48),
-    new THREE.MeshStandardMaterial({ map: grassTexture(), color: 0xffffff, roughness: 1, metalness: 0 }),
-  );
-  grass.rotation.x = -Math.PI / 2;
-  grass.receiveShadow = true;
-  scene.add(grass);
-
-  const earth = new THREE.Mesh(
-    new THREE.CircleGeometry(2.4, 20),
-    new THREE.MeshStandardMaterial({ color: 0x6a5038, roughness: 1 }),
-  );
-  earth.rotation.x = -Math.PI / 2;
-  earth.position.set(-6.4, 0.01, -1.6);
-  earth.receiveShadow = true;
-  scene.add(earth);
-
-  const meadow = new THREE.Mesh(
-    new THREE.CircleGeometry(7.5, 28),
-    new THREE.MeshStandardMaterial({ color: 0x6e9148, roughness: 1 }),
-  );
-  meadow.rotation.x = -Math.PI / 2;
-  meadow.position.set(0.4, 0.008, -11.5);
-  meadow.receiveShadow = true;
-  scene.add(meadow);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.32 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
 
   const frameMat = new THREE.MeshPhysicalMaterial({
     map: woodTexture('#6d4630', '#3e2618', 2),
@@ -189,79 +169,6 @@ export function mountScene(host: HTMLElement): SceneHandle {
       scene.add(mesh);
     }
   }
-
-  const trunkMat = new THREE.MeshStandardMaterial({ map: barkTexture(), roughness: 0.92 });
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.62, 7.2, 16), trunkMat);
-  trunk.position.set(-6.4, 3.5, -1.6);
-  trunk.castShadow = true;
-  trunk.receiveShadow = true;
-  scene.add(trunk);
-
-  const addBranch = (from: THREE.Vector3, to: THREE.Vector3, r0: number, r1: number) => {
-    const dir = to.clone().sub(from);
-    const length = dir.length();
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, length, 8), trunkMat);
-    mesh.position.copy(from).add(to).multiplyScalar(0.5);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
-    mesh.castShadow = false;
-    scene.add(mesh);
-  };
-  const fork = new THREE.Vector3(-5.5, 5.15, -0.2);
-  const reach = new THREE.Vector3(-1.4, 6.35, 3.2);
-  const tip = new THREE.Vector3(2.8, 6.15, 5.1);
-  addBranch(new THREE.Vector3(-6.25, 4.1, -1.35), fork, 0.18, 0.1);
-  addBranch(fork, reach, 0.09, 0.05);
-  addBranch(reach, tip, 0.055, 0.028);
-  addBranch(fork, new THREE.Vector3(-3.2, 6.45, 1.5), 0.07, 0.03);
-  addBranch(reach, new THREE.Vector3(0.4, 6.7, 4.6), 0.045, 0.022);
-  addBranch(fork, new THREE.Vector3(-6.6, 6.1, -2.2), 0.06, 0.028);
-
-  const sunLeaf = leafTexture('sun');
-  const shadeLeaf = leafTexture('shade');
-  sunLeaf.wrapS = THREE.ClampToEdgeWrapping;
-  sunLeaf.wrapT = THREE.ClampToEdgeWrapping;
-  shadeLeaf.wrapS = THREE.ClampToEdgeWrapping;
-  shadeLeaf.wrapT = THREE.ClampToEdgeWrapping;
-  const leafMat = (map: THREE.Texture, emissive: number) =>
-    new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      map,
-      alphaTest: 0.4,
-      side: THREE.DoubleSide,
-      roughness: 0.62,
-      emissive,
-      emissiveIntensity: 0.2,
-    });
-  const litMat = leafMat(sunLeaf, 0x244818);
-  const deepMat = leafMat(shadeLeaf, 0x163214);
-  const leaves: THREE.Mesh[] = [];
-  let leafSeed = 0x1a77;
-  const rand = () => {
-    leafSeed = (Math.imul(leafSeed, 1664525) + 1013904223) >>> 0;
-    return leafSeed / 4294967296;
-  };
-  const tuft = (center: THREE.Vector3, count: number, radius: number) => {
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 + rand();
-      const dist = radius * (0.25 + rand() * 0.75);
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.72 + rand() * 0.38, 0.95 + rand() * 0.4), i % 3 === 0 ? deepMat : litMat);
-      mesh.position.set(
-        center.x + Math.cos(angle) * dist,
-        center.y + (rand() - 0.35) * radius * 0.85,
-        center.z + Math.sin(angle) * dist * 0.75,
-      );
-      mesh.rotation.set(-0.55 - rand() * 0.45, (rand() - 0.5) * 1.1, (rand() - 0.5) * 0.5);
-      mesh.castShadow = false;
-      scene.add(mesh);
-      leaves.push(mesh);
-    }
-  };
-  const limbs = [fork, reach, tip, new THREE.Vector3(-3.2, 6.45, 1.5), new THREE.Vector3(0.4, 6.7, 4.6)];
-  for (const limb of limbs) tuft(limb, 11, 0.85);
-  tuft(fork.clone().lerp(reach, 0.45), 9, 0.7);
-  tuft(reach.clone().lerp(tip, 0.5), 9, 0.7);
-  tuft(new THREE.Vector3(-4.4, 6.05, 0.7), 8, 0.65);
-  tuft(new THREE.Vector3(1.6, 6.25, 4.4), 8, 0.6);
 
   const dapple = new THREE.Mesh(
     new THREE.PlaneGeometry(10.6, 10.6),
@@ -354,6 +261,9 @@ export function mountScene(host: HTMLElement): SceneHandle {
   scene.add(blackHand.root);
   whiteHand.root.scale.setScalar(1.35);
   blackHand.root.scale.setScalar(1.35);
+  // The players are the photographs beside the board; the rigs only guide the pieces.
+  whiteHand.root.visible = false;
+  blackHand.root.visible = false;
   const restWhite = new THREE.Vector3(0.7, 0.74, 2.15);
   const restBlack = new THREE.Vector3(-0.35, 0.8, -0.85);
   const rollFor = (side: Color) => (side === 'white' ? 0 : 0);
@@ -413,9 +323,6 @@ export function mountScene(host: HTMLElement): SceneHandle {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     clock += dt;
-    for (const leaf of leaves) {
-      leaf.rotation.z += Math.sin(clock * 0.7 + leaf.position.x) * 0.0008;
-    }
     try {
     if (anim && !anim.paused()) {
       const phase = anim.phases[anim.index];
