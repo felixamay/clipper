@@ -11,6 +11,7 @@ export interface Character {
   id: string;
   name: string;
   portrait: PortraitSpec;
+  photo?: string;
   depth: number;
   noise: number;
   record: RecordBook;

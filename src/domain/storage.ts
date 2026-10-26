@@ -38,6 +38,7 @@ function isCharacter(value: unknown): value is Character {
     typeof character.depth === 'number' &&
     typeof character.noise === 'number' &&
     isPortrait(character.portrait) &&
+    (character.photo === undefined || typeof character.photo === 'string') &&
     isRecord(character.record)
   );
 }
@@ -56,7 +57,11 @@ function load(): Character[] {
     if (!raw) return seed();
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every(isCharacter)) return seed();
-    return parsed;
+    // Rosters saved before the photographs existed pick them up here.
+    return parsed.map((character) => {
+      const starter = STARTER_ROSTER.find((item) => item.id === character.id);
+      return starter && !character.photo ? { ...character, photo: starter.photo } : character;
+    });
   } catch {
     return seed();
   }

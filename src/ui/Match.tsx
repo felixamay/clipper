@@ -1,17 +1,17 @@
 import { RefObject, useEffect, useRef, useState } from 'react';
 import { Character, saltFromId } from '../domain/character';
 import { Cue, PlayEvent, currentCue, pushResult } from '../domain/event';
-import { PACE, PaceName, waitRemaining } from '../domain/pace';
+import { PACE, PaceName, humanThinkMs, waitRemaining } from '../domain/pace';
 import { scriptNote, scriptedGame } from '../domain/scripts';
 import { getRoster, recordResult, useRoster } from '../domain/storage';
-import { describeMove } from '../engine/board';
+import { Color, describeMove } from '../engine/board';
 import { GameState, resultOf, startGame, afterMove } from '../engine/game';
 import { legalMoves, sameMove } from '../engine/moves';
 import { shirtHex, skinHex } from '../portrait/palette';
 import { SceneHandle } from '../scene/mountScene';
 import { BracketMatch, RobinMatch, roundLabel, seriesOutcome, standings } from '../tournament/tournament';
 import { requestMove, stopSearch } from '../worker/client';
-import { Portrait } from './Portrait';
+import { Portrait, photoUrl } from './Portrait';
 import { Records } from './Records';
 
 function explain(state: GameState, white: Character, black: Character): string {
@@ -108,6 +108,7 @@ export function Match({
   const [phase, setPhase] = useState<'card' | 'live' | 'over'>(initial.over ? 'over' : 'card');
   const [banner, setBanner] = useState('The board is set');
   const [pace, setPace] = useState<PaceName>('normal');
+  const [thinker, setThinker] = useState<{ side: Color; since: number } | null>(null);
   const [paused, setPaused] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -187,14 +188,21 @@ export function Match({
     let state = active.script ? scriptedGame(active.script) : startGame();
     scene.reset(state.board);
     setLiveState(state);
+    let ply = 0;
     while (state.status.kind === 'playing') {
       if (token.current !== my) return;
       const people = getRoster();
       const player = people.find((character) => character.id === (state.turn === 'white' ? active.whiteId : active.blackId));
       if (!player) return;
-      setBanner(`${player.name} is choosing a move`);
-      const think = PACE[paceRef.current].think;
+      setBanner(`${player.name} is thinking`);
+      const options = legalMoves(state.board, state.turn);
+      const think = humanThinkMs(paceRef.current, {
+        legal: options.length,
+        captures: options.some((item) => item.captures.length > 0),
+        ply,
+      });
       const started = performance.now();
+      setThinker({ side: state.turn, since: started });
       const seen = [...state.seen.entries()].map(([key, count]) => [key.toString(), count] as [string, number]);
       const move = await requestMove({
         board: state.board,
@@ -202,7 +210,7 @@ export function Match({
         depth: player.depth,
         noise: player.noise,
         salt: saltFromId(player.id),
-        timeMs: think,
+        timeMs: PACE[paceRef.current].search,
         noProgress: state.noProgress,
         seen,
       });
@@ -212,6 +220,7 @@ export function Match({
       const legal = legalMoves(state.board, state.turn);
       const chosen = (move && legal.find((item) => sameMove(item, move))) || legal[0];
       if (!chosen) break;
+      setThinker(null);
       setBanner(`${player.name} plays ${describeMove(chosen)}`);
       await scene.playMove(
         chosen,
@@ -221,8 +230,10 @@ export function Match({
       );
       if (token.current !== my) return;
       state = afterMove(state, chosen);
+      ply += 1;
       setLiveState(state);
     }
+    setThinker(null);
     if (token.current !== my) return;
     const result = resultOf(state);
     running.current = false;
@@ -290,6 +301,12 @@ export function Match({
       )}
       {phase === 'live' && (
         <>
+          {white && black && (
+            <div className="players">
+              <Player character={black} label="Dark" thinking={thinker?.side === 'black' ? thinker.since : null} paused={paused} />
+              <Player character={white} label="Light" thinking={thinker?.side === 'white' ? thinker.since : null} paused={paused} />
+            </div>
+          )}
           <header className="hud-top" data-testid="live-hud">
             <span>{white?.name} · light</span>
             <span>{banner}</span>
@@ -319,9 +336,49 @@ function Seat({ character, side }: { character: Character; side: string }) {
   return (
     <div className="seat">
       <p className="side">{side}</p>
-      <Portrait spec={character.portrait} id={`${character.id}-card`} />
+      <Portrait spec={character.portrait} photo={character.photo} name={character.name} id={`${character.id}-card`} />
       <h3>{character.name}</h3>
       <Records record={character.record} />
     </div>
+  );
+}
+
+function Player({
+  character,
+  label,
+  thinking,
+  paused,
+}: {
+  character: Character;
+  label: string;
+  thinking: number | null;
+  paused: boolean;
+}) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (thinking === null || paused) return undefined;
+    const timer = window.setInterval(() => tick((n) => n + 1), 500);
+    return () => window.clearInterval(timer);
+  }, [thinking, paused]);
+  const seconds = thinking === null ? 0 : Math.floor((performance.now() - thinking) / 1000);
+  const className = thinking === null ? 'player' : 'player thinking';
+  return (
+    <figure className={className} data-testid={`player-${label.toLowerCase()}`}>
+      <div className="player-frame">
+        {character.photo ? (
+          <img src={photoUrl(character.photo)} alt={character.name} />
+        ) : (
+          <Portrait spec={character.portrait} name={character.name} id={`${character.id}-live`} />
+        )}
+      </div>
+      <figcaption>
+        <strong>{character.name}</strong>
+        <span>
+          {label}
+          {thinking !== null &&
+            (paused ? ' · paused' : ` · thinking ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`)}
+        </span>
+      </figcaption>
+    </figure>
   );
 }

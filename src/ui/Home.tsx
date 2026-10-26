@@ -43,7 +43,7 @@ export function Home({
       <div className="roster-grid">
         {roster.map((character) => (
           <article className="person" key={character.id}>
-            <Portrait spec={character.portrait} id={character.id} />
+            <Portrait spec={character.portrait} photo={character.photo} name={character.name} id={character.id} />
             <h3>{character.name}</h3>
             <p className="quiet">{describeStrength(character)}</p>
             <Records record={character.record} />
