@@ -9,5 +9,5 @@ export function Portrait({ spec }: { spec: PortraitSpec; id: string }) {
     if (!canvas) return;
     paintPortrait(canvas, spec);
   }, [spec]);
-  return <canvas ref={ref} className="portrait-canvas" width={400} height={500} />;
+  return <canvas ref={ref} className="portrait-canvas" width={800} height={1000} />;
 }

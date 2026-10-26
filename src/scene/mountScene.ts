@@ -7,7 +7,7 @@ import { barkTexture, dappleTexture, grassTexture, leafTexture, woodTexture } fr
 const SQUARE = 1;
 const BOARD_TOP = 0.5;
 function pitchFor(side: Color): number {
-  return side === 'white' ? -0.18 : 0.18;
+  return side === 'white' ? 0.22 : 0.26;
 }
 
 export interface SceneHandle {
@@ -43,8 +43,9 @@ function bezier(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, t: number)
 }
 
 function yawFor(side: Color, target: THREE.Vector3): number {
-  const anchor = side === 'white' ? new THREE.Vector3(8, 0, target.z + 0.5) : new THREE.Vector3(-8, 0, target.z - 0.5);
-  return Math.atan2(target.x - anchor.x, target.z - anchor.z);
+  const into = side === 'white' ? -1 : 1;
+  const dz = THREE.MathUtils.clamp(-target.z * 0.06, -0.28, 0.28);
+  return Math.atan2(into, dz);
 }
 
 interface Phase {
@@ -131,20 +132,14 @@ export function mountScene(host: HTMLElement): SceneHandle {
   earth.receiveShadow = true;
   scene.add(earth);
 
-  const bushMat = new THREE.MeshStandardMaterial({ color: 0x3f6b3a, roughness: 0.92 });
-  for (const bush of [
-    { x: -8, z: -11, s: 1.6 },
-    { x: -4.5, z: -12.4, s: 2.1 },
-    { x: 0.2, z: -13, s: 1.8 },
-    { x: 4.6, z: -12.2, s: 2.2 },
-    { x: 8.4, z: -11.4, s: 1.5 },
-  ]) {
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), bushMat);
-    mesh.scale.set(bush.s, bush.s * 0.72, bush.s);
-    mesh.position.set(bush.x, bush.s * 0.55, bush.z);
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-  }
+  const meadow = new THREE.Mesh(
+    new THREE.CircleGeometry(7.5, 28),
+    new THREE.MeshStandardMaterial({ color: 0x6e9148, roughness: 1 }),
+  );
+  meadow.rotation.x = -Math.PI / 2;
+  meadow.position.set(0.4, 0.008, -11.5);
+  meadow.receiveShadow = true;
+  scene.add(meadow);
 
   const frameMat = new THREE.MeshPhysicalMaterial({
     map: woodTexture('#6d4630', '#3e2618', 2),
@@ -213,45 +208,62 @@ export function mountScene(host: HTMLElement): SceneHandle {
     mesh.castShadow = false;
     scene.add(mesh);
   };
-  const trunkTop = new THREE.Vector3(-5.6, 5.4, -0.4);
-  addBranch(new THREE.Vector3(-6.3, 3.6, -1.4), trunkTop, 0.16, 0.08);
-  addBranch(trunkTop, new THREE.Vector3(-1.2, 6.3, 4.2), 0.08, 0.035);
-  addBranch(trunkTop, new THREE.Vector3(2.2, 6.1, 5.4), 0.06, 0.03);
-  addBranch(trunkTop, new THREE.Vector3(-3.4, 6.0, 2.6), 0.07, 0.03);
+  const fork = new THREE.Vector3(-5.5, 5.15, -0.2);
+  const reach = new THREE.Vector3(-1.4, 6.35, 3.2);
+  const tip = new THREE.Vector3(2.8, 6.15, 5.1);
+  addBranch(new THREE.Vector3(-6.25, 4.1, -1.35), fork, 0.18, 0.1);
+  addBranch(fork, reach, 0.09, 0.05);
+  addBranch(reach, tip, 0.055, 0.028);
+  addBranch(fork, new THREE.Vector3(-3.2, 6.45, 1.5), 0.07, 0.03);
+  addBranch(reach, new THREE.Vector3(0.4, 6.7, 4.6), 0.045, 0.022);
+  addBranch(fork, new THREE.Vector3(-6.6, 6.1, -2.2), 0.06, 0.028);
 
-  const leafMap = leafTexture();
-  leafMap.wrapS = THREE.ClampToEdgeWrapping;
-  leafMap.wrapT = THREE.ClampToEdgeWrapping;
-  const leafMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: leafMap,
-    alphaTest: 0.2,
-    side: THREE.DoubleSide,
-    roughness: 0.72,
-    emissive: 0x1c3d18,
-    emissiveIntensity: 0.45,
-  });
+  const sunLeaf = leafTexture('sun');
+  const shadeLeaf = leafTexture('shade');
+  sunLeaf.wrapS = THREE.ClampToEdgeWrapping;
+  sunLeaf.wrapT = THREE.ClampToEdgeWrapping;
+  shadeLeaf.wrapS = THREE.ClampToEdgeWrapping;
+  shadeLeaf.wrapT = THREE.ClampToEdgeWrapping;
+  const leafMat = (map: THREE.Texture, emissive: number) =>
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map,
+      alphaTest: 0.4,
+      side: THREE.DoubleSide,
+      roughness: 0.62,
+      emissive,
+      emissiveIntensity: 0.2,
+    });
+  const litMat = leafMat(sunLeaf, 0x244818);
+  const deepMat = leafMat(shadeLeaf, 0x163214);
   const leaves: THREE.Mesh[] = [];
-  const crowns = [
-    { x: -2.4, y: 6.15, z: 3.4, n: 14, spread: 1.8 },
-    { x: 0.6, y: 6.35, z: 5.2, n: 12, spread: 1.6 },
-    { x: 2.4, y: 6.05, z: 5.6, n: 8, spread: 1.3 },
-    { x: -5.2, y: 5.5, z: 0.2, n: 8, spread: 1.2 },
-  ];
-  for (const crown of crowns) {
-    for (let i = 0; i < crown.n; i++) {
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.7), leafMat);
+  let leafSeed = 0x1a77;
+  const rand = () => {
+    leafSeed = (Math.imul(leafSeed, 1664525) + 1013904223) >>> 0;
+    return leafSeed / 4294967296;
+  };
+  const tuft = (center: THREE.Vector3, count: number, radius: number) => {
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + rand();
+      const dist = radius * (0.25 + rand() * 0.75);
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.72 + rand() * 0.38, 0.95 + rand() * 0.4), i % 3 === 0 ? deepMat : litMat);
       mesh.position.set(
-        crown.x + (Math.random() - 0.5) * crown.spread,
-        crown.y + (Math.random() - 0.45) * 1.4,
-        crown.z + (Math.random() - 0.5) * crown.spread,
+        center.x + Math.cos(angle) * dist,
+        center.y + (rand() - 0.35) * radius * 0.85,
+        center.z + Math.sin(angle) * dist * 0.75,
       );
-      mesh.rotation.set(0.4 + Math.random() * 0.8, Math.random() * Math.PI, (Math.random() - 0.5) * 0.6);
+      mesh.rotation.set(-0.55 - rand() * 0.45, (rand() - 0.5) * 1.1, (rand() - 0.5) * 0.5);
       mesh.castShadow = false;
       scene.add(mesh);
       leaves.push(mesh);
     }
-  }
+  };
+  const limbs = [fork, reach, tip, new THREE.Vector3(-3.2, 6.45, 1.5), new THREE.Vector3(0.4, 6.7, 4.6)];
+  for (const limb of limbs) tuft(limb, 11, 0.85);
+  tuft(fork.clone().lerp(reach, 0.45), 9, 0.7);
+  tuft(reach.clone().lerp(tip, 0.5), 9, 0.7);
+  tuft(new THREE.Vector3(-4.4, 6.05, 0.7), 8, 0.65);
+  tuft(new THREE.Vector3(1.6, 6.25, 4.4), 8, 0.6);
 
   const dapple = new THREE.Mesh(
     new THREE.PlaneGeometry(10.6, 10.6),
@@ -342,11 +354,11 @@ export function mountScene(host: HTMLElement): SceneHandle {
   const blackHand = createHand();
   scene.add(whiteHand.root);
   scene.add(blackHand.root);
-  whiteHand.root.scale.setScalar(1.45);
-  blackHand.root.scale.setScalar(1.45);
-  const restWhite = new THREE.Vector3(2.4, 0.78, 1.6);
-  const restBlack = new THREE.Vector3(-2.2, 0.78, -1.8);
-  const rollFor = (side: Color) => (side === 'white' ? 0.08 : -0.08);
+  whiteHand.root.scale.setScalar(1.42);
+  blackHand.root.scale.setScalar(1.42);
+  const restWhite = new THREE.Vector3(2.15, 0.84, 0.35);
+  const restBlack = new THREE.Vector3(-1.85, 0.9, -0.45);
+  const rollFor = (side: Color) => (side === 'white' ? 0.04 : -0.04);
 
   const park = (rig: HandRig, side: Color, target: THREE.Vector3) => {
     placeHand(rig, target, yawFor(side, target), pitchFor(side), rollFor(side));
