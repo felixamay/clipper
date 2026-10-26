@@ -1,13 +1,30 @@
 import * as THREE from 'three';
 import { Board, Color, Move } from '../engine/board';
 import { applyMove } from '../engine/moves';
-import { HandRig, createHand, placeHand } from './hands';
+import { HandRig, createHand, createPhotoHand, placeHand } from './hands';
+import { PLAYER_RIGS } from './photos';
 import { dappleTexture, woodTexture } from './textures';
 
 const SQUARE = 1;
 const BOARD_TOP = 0.5;
+/** The board rests on a table: a square is about 4.5 cm, so a 75 cm table is about 17 squares tall. */
+const TABLE_TOP = 0.02;
+const TABLE_HEIGHT = 17;
+/** Half the table's length toward each player, and half its depth toward the camera. */
+const TABLE_X = 9;
+const TABLE_Z = 7.5;
+const FLOOR = TABLE_TOP - TABLE_HEIGHT;
+/** Width of a photographed forearm, in squares. */
+const ARM_WIDTH = 2.9;
 function pitchFor(side: Color): number {
   return side === 'white' ? 0.12 : 0.14;
+}
+/** Light sits on the left of the table and dark on the right, each reaching in with the right hand. */
+function sideSign(side: Color): number {
+  return side === 'white' ? -1 : 1;
+}
+function shoulderFor(side: Color): THREE.Vector3 {
+  return new THREE.Vector3(sideSign(side) * (TABLE_X + 1.2), 0, 1.6);
 }
 
 export interface SceneHandle {
@@ -16,13 +33,16 @@ export interface SceneHandle {
   playMove: (move: Move, side: Color, speed: () => number, paused: () => boolean) => Promise<void>;
   cancel: () => void;
   setShift: (amount: number) => void;
+  /** Seat the two players by their roster photos; a player without a seated photo is left out. */
+  setPlayers: (whitePhoto?: string, blackPhoto?: string) => void;
   dispose: () => void;
 }
 
+/** Light's home rows face the left of the table, so the players sit at either end and face each other. */
 function squareToWorld(square: number, y = BOARD_TOP): THREE.Vector3 {
   const row = Math.floor(square / 10);
   const col = square % 10;
-  return new THREE.Vector3((col - 4.5) * SQUARE, y, (4.5 - row) * SQUARE);
+  return new THREE.Vector3((row - 4.5) * SQUARE, y, (col - 4.5) * SQUARE);
 }
 
 function ease(t: number): number {
@@ -80,6 +100,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.localClippingEnabled = true;
   // The photograph of the square under the tree sits behind the canvas.
   renderer.setClearColor(0x000000, 0);
   host.appendChild(renderer.domElement);
@@ -89,23 +110,23 @@ export function mountScene(host: HTMLElement): SceneHandle {
   let shift = 0;
 
   const applyCamera = () => {
-    // Far enough back that the board sits low in the frame and the crowd under the tree shows above it.
-    camera.position.set(0.3 + shift, 8.6, 19.5);
-    camera.lookAt(shift * 0.25, 3.4, -2.5);
+    // Far enough back to take in both players at the table, with the seated crowd showing above them.
+    camera.position.set(0.3 + shift * 3, 17, 45);
+    camera.lookAt(shift * 0.8, -2.2, -2);
   };
   applyCamera();
 
   scene.add(new THREE.HemisphereLight(0xc9daf0, 0x3e5a32, 0.72));
   const sun = new THREE.DirectionalLight(0xfff1d4, 2.15);
-  sun.position.set(2.4, 18, 4.2);
+  sun.position.set(3.6, 27, 6.3);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 4;
-  sun.shadow.camera.far = 36;
-  sun.shadow.camera.left = -12;
-  sun.shadow.camera.right = 12;
-  sun.shadow.camera.top = 12;
-  sun.shadow.camera.bottom = -12;
+  sun.shadow.camera.far = 60;
+  sun.shadow.camera.left = -18;
+  sun.shadow.camera.right = 18;
+  sun.shadow.camera.top = 18;
+  sun.shadow.camera.bottom = -18;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.06;
   scene.add(sun);
@@ -114,10 +135,47 @@ export function mountScene(host: HTMLElement): SceneHandle {
   fill.position.set(-5, 6, 6);
   scene.add(fill);
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.32 }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.ShadowMaterial({ opacity: 0.32 }));
   ground.rotation.x = -Math.PI / 2;
+  ground.position.y = FLOOR;
   ground.receiveShadow = true;
   scene.add(ground);
+
+  const tableMat = new THREE.MeshStandardMaterial({
+    map: woodTexture('#9a7350', '#6a4a30', 3),
+    color: 0xffffff,
+    roughness: 0.72,
+    metalness: 0,
+  });
+  const tableTop = new THREE.Mesh(new THREE.BoxGeometry(TABLE_X * 2, 0.7, TABLE_Z * 2), tableMat);
+  tableTop.position.y = TABLE_TOP - 0.35;
+  tableTop.castShadow = true;
+  tableTop.receiveShadow = true;
+  scene.add(tableTop);
+  const apronLong = new THREE.BoxGeometry(TABLE_X * 2 - 2.4, 1.6, 0.4);
+  const apronShort = new THREE.BoxGeometry(0.4, 1.6, TABLE_Z * 2 - 2.4);
+  for (const z of [TABLE_Z - 1.2, -(TABLE_Z - 1.2)]) {
+    const apron = new THREE.Mesh(apronLong, tableMat);
+    apron.position.set(0, TABLE_TOP - 1.5, z);
+    apron.castShadow = true;
+    scene.add(apron);
+  }
+  for (const x of [TABLE_X - 1.2, -(TABLE_X - 1.2)]) {
+    const apron = new THREE.Mesh(apronShort, tableMat);
+    apron.position.set(x, TABLE_TOP - 1.5, 0);
+    apron.castShadow = true;
+    scene.add(apron);
+  }
+  const legGeo = new THREE.BoxGeometry(0.9, TABLE_HEIGHT - 0.7, 0.9);
+  for (const x of [TABLE_X - 1.2, -(TABLE_X - 1.2)]) {
+    for (const z of [TABLE_Z - 1.2, -(TABLE_Z - 1.2)]) {
+      const leg = new THREE.Mesh(legGeo, tableMat);
+      leg.position.set(x, FLOOR + (TABLE_HEIGHT - 0.7) / 2, z);
+      leg.castShadow = true;
+      leg.receiveShadow = true;
+      scene.add(leg);
+    }
+  }
 
   const frameMat = new THREE.MeshPhysicalMaterial({
     map: woodTexture('#6d4630', '#3e2618', 2),
@@ -164,7 +222,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
     for (let col = 0; col < 10; col++) {
       const dark = ((row + col) & 1) === 1;
       const mesh = new THREE.Mesh(tile, dark ? darkSquare : lightSquare);
-      mesh.position.set((col - 4.5) * SQUARE, 0.455, (4.5 - row) * SQUARE);
+      mesh.position.copy(squareToWorld(row * 10 + col, 0.455));
       mesh.receiveShadow = true;
       scene.add(mesh);
     }
@@ -255,26 +313,94 @@ export function mountScene(host: HTMLElement): SceneHandle {
     }
   };
 
-  const whiteHand = createHand();
-  const blackHand = createHand();
-  scene.add(whiteHand.root);
-  scene.add(blackHand.root);
-  whiteHand.root.scale.setScalar(1.35);
-  blackHand.root.scale.setScalar(1.35);
-  // The players are the photographs beside the board; the rigs only guide the pieces.
-  whiteHand.root.visible = false;
-  blackHand.root.visible = false;
-  const restWhite = new THREE.Vector3(0.7, 0.74, 2.15);
-  const restBlack = new THREE.Vector3(-0.35, 0.8, -0.85);
+  // Without a seated photo the drawn rigs stay hidden and only guide the pieces.
+  const drawnHands: Record<Color, HandRig> = { white: createHand(), black: createHand() };
+  for (const rig of Object.values(drawnHands)) {
+    rig.root.scale.setScalar(1.35);
+    rig.root.visible = false;
+    scene.add(rig.root);
+  }
+  const hands: Record<Color, HandRig> = { ...drawnHands };
+  const photoHands: Partial<Record<Color, HandRig>> = {};
+  const seats: Partial<Record<Color, THREE.Mesh>> = {};
+  const restFor = (side: Color) =>
+    photoHands[side]
+      ? new THREE.Vector3(sideSign(side) * (TABLE_X - 2.4), TABLE_TOP + 0.1, 2.6)
+      : side === 'white'
+        ? new THREE.Vector3(0.7, 0.74, 2.15)
+        : new THREE.Vector3(-0.35, 0.8, -0.85);
   const rollFor = (side: Color) => (side === 'white' ? 0 : 0);
-
-  const park = (rig: HandRig, side: Color, target: THREE.Vector3) => {
-    placeHand(rig, target, yawFor(side, target), pitchFor(side), rollFor(side));
-    rig.setGrasp(0.06);
+  const poseHand = (side: Color, target: THREE.Vector3, grasp: number) => {
+    const rig = hands[side];
+    if (photoHands[side]) {
+      // The photographed arm swings from the shoulder toward the square it reaches for.
+      const from = shoulderFor(side);
+      placeHand(rig, target, Math.atan2(target.x - from.x, target.z - from.z), 0, 0);
+    } else {
+      placeHand(rig, target, yawFor(side, target), pitchFor(side), rollFor(side));
+    }
+    rig.setGrasp(grasp);
   };
   const parkHands = () => {
-    park(whiteHand, 'white', restWhite);
-    park(blackHand, 'black', restBlack);
+    poseHand('white', restFor('white'), 0.06);
+    poseHand('black', restFor('black'), 0.06);
+  };
+
+  const loader = new THREE.TextureLoader();
+  const clearSeat = (side: Color) => {
+    const seat = seats[side];
+    if (seat) {
+      scene.remove(seat);
+      seat.geometry.dispose();
+      const material = seat.material as THREE.MeshBasicMaterial;
+      material.map?.dispose();
+      material.dispose();
+      delete seats[side];
+    }
+    const photoHand = photoHands[side];
+    if (photoHand) {
+      scene.remove(photoHand.root);
+      photoHand.dispose();
+      delete photoHands[side];
+    }
+    hands[side] = drawnHands[side];
+  };
+  const seatPlayer = (side: Color, photo?: string) => {
+    clearSeat(side);
+    const rig = photo ? PLAYER_RIGS[photo] : undefined;
+    if (!rig) return;
+    const sign = sideSign(side);
+    const base = import.meta.env.BASE_URL;
+    // The photo is scaled so its tabletop line meets this table and its feet the floor.
+    const height = TABLE_HEIGHT / (1 - rig.table);
+    const width = height * rig.seatedAspect;
+    const texture = loader.load(`${base}${rig.seated}`);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+    // Above the tabletop the person ends at the table edge, where the photographed arm takes over.
+    const edge = sign * TABLE_X;
+    const seat = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({
+        map: texture,
+        color: 0xe6ded2,
+        transparent: true,
+        alphaTest: 0.04,
+        clippingPlanes: [new THREE.Plane(new THREE.Vector3(sign, 0, 0), -edge * sign), new THREE.Plane(new THREE.Vector3(0, -1, 0), TABLE_TOP)],
+        clipIntersection: true,
+      }),
+    );
+    seat.scale.x = -sign;
+    seat.position.set(edge + sign * (rig.edge - 0.5) * width, TABLE_TOP + (rig.table - 0.5) * height, -0.4);
+    seats[side] = seat;
+    scene.add(seat);
+
+    const hand = createPhotoHand(`${base}${rig.hand}`, rig.handAspect, rig.pinch, ARM_WIDTH, [
+      new THREE.Plane(new THREE.Vector3(-sign, 0, 0), edge * sign),
+    ]);
+    photoHands[side] = hand;
+    hands[side] = hand;
+    scene.add(hand.root);
   };
   parkHands();
 
@@ -346,13 +472,12 @@ export function mountScene(host: HTMLElement): SceneHandle {
         }
       }
     } else if (!anim) {
-      const bob = Math.sin(clock * 1.5) * 0.025;
-      const whiteTarget = restWhite.clone();
-      whiteTarget.y += bob;
-      park(whiteHand, 'white', whiteTarget);
-      const blackTarget = restBlack.clone();
+      const whiteTarget = restFor('white');
+      whiteTarget.y += Math.sin(clock * 1.5) * 0.025;
+      poseHand('white', whiteTarget, 0.06);
+      const blackTarget = restFor('black');
       blackTarget.y += Math.sin(clock * 1.5 + 1.2) * 0.025;
-      park(blackHand, 'black', blackTarget);
+      poseHand('black', blackTarget, 0.06);
     }
     for (let i = removals.length - 1; i >= 0; i--) {
       const removal = removals[i];
@@ -394,7 +519,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
 
   const playMove = (move: Move, side: Color, speed: () => number, paused: () => boolean) => {
     return new Promise<void>((resolve) => {
-      const hand = side === 'white' ? whiteHand : blackHand;
+      const hand = hands[side];
       const mesh = pieces.get(move.path[0]);
       const before = logical.slice();
       const commit = () => {
@@ -423,10 +548,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
       hand.pinch.getWorldPosition(start);
       const targets = move.path.map((square) => squareToWorld(square, BOARD_TOP + 0.18));
       const phases: Phase[] = [];
-      const pose = (target: THREE.Vector3, grasp: number) => {
-        placeHand(hand, target, yawFor(side, target), pitchFor(side), rollFor(side));
-        hand.setGrasp(grasp);
-      };
+      const pose = (target: THREE.Vector3, grasp: number) => poseHand(side, target, grasp);
       phases.push({
         duration: 0.46,
         apply: (t) => pose(lerpVec(start, targets[0], t), 0.18 + t * 0.08),
@@ -468,7 +590,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
                   from: cap.position.clone(),
                   elapsed: 0,
                   duration: 0.55,
-                  dir: side === 'white' ? 1 : -1,
+                  dir: sideSign(side),
                 });
               }
             }
@@ -495,7 +617,7 @@ export function mountScene(host: HTMLElement): SceneHandle {
       phases.push({
         duration: 0.42,
         apply: (t) => {
-          const home = side === 'white' ? restWhite : restBlack;
+          const home = restFor(side);
           pose(lerpVec(landing, home, t), 0.18);
         },
       });
@@ -521,10 +643,15 @@ export function mountScene(host: HTMLElement): SceneHandle {
       parkHands();
     },
     setColors: (whiteSkin, blackSkin, whiteSleeve, blackSleeve) => {
-      whiteHand.setSkin(whiteSkin);
-      blackHand.setSkin(blackSkin);
-      whiteHand.setSleeve(whiteSleeve);
-      blackHand.setSleeve(blackSleeve);
+      drawnHands.white.setSkin(whiteSkin);
+      drawnHands.black.setSkin(blackSkin);
+      drawnHands.white.setSleeve(whiteSleeve);
+      drawnHands.black.setSleeve(blackSleeve);
+    },
+    setPlayers: (whitePhoto, blackPhoto) => {
+      seatPlayer('white', whitePhoto);
+      seatPlayer('black', blackPhoto);
+      parkHands();
     },
     playMove,
     cancel: () => {
@@ -542,8 +669,10 @@ export function mountScene(host: HTMLElement): SceneHandle {
     dispose: () => {
       dead = true;
       observer.disconnect();
-      whiteHand.dispose();
-      blackHand.dispose();
+      clearSeat('white');
+      clearSeat('black');
+      drawnHands.white.dispose();
+      drawnHands.black.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     },

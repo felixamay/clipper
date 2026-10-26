@@ -43,6 +43,7 @@ export default function App() {
       shirtHex(pair[0].portrait),
       shirtHex(pair[1].portrait),
     );
+    scene.setPlayers(pair[0].photo, pair[1].photo);
     scene.reset(initialBoard());
     scene.setShift(0);
   }, [screen.type, roster]);
