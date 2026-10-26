@@ -7,7 +7,7 @@ import { barkTexture, dappleTexture, grassTexture, leafTexture, woodTexture } fr
 const SQUARE = 1;
 const BOARD_TOP = 0.5;
 function pitchFor(side: Color): number {
-  return side === 'white' ? 0.22 : 0.26;
+  return side === 'white' ? 0.12 : 0.14;
 }
 
 export interface SceneHandle {
@@ -42,10 +42,8 @@ function bezier(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, t: number)
   );
 }
 
-function yawFor(side: Color, target: THREE.Vector3): number {
-  const into = side === 'white' ? -1 : 1;
-  const dz = THREE.MathUtils.clamp(-target.z * 0.06, -0.28, 0.28);
-  return Math.atan2(into, dz);
+function yawFor(side: Color, _target: THREE.Vector3): number {
+  return side === 'white' ? Math.PI : Math.PI;
 }
 
 interface Phase {
@@ -354,11 +352,11 @@ export function mountScene(host: HTMLElement): SceneHandle {
   const blackHand = createHand();
   scene.add(whiteHand.root);
   scene.add(blackHand.root);
-  whiteHand.root.scale.setScalar(1.42);
-  blackHand.root.scale.setScalar(1.42);
-  const restWhite = new THREE.Vector3(2.15, 0.84, 0.35);
-  const restBlack = new THREE.Vector3(-1.85, 0.9, -0.45);
-  const rollFor = (side: Color) => (side === 'white' ? 0.04 : -0.04);
+  whiteHand.root.scale.setScalar(1.35);
+  blackHand.root.scale.setScalar(1.35);
+  const restWhite = new THREE.Vector3(0.7, 0.74, 2.15);
+  const restBlack = new THREE.Vector3(-0.35, 0.8, -0.85);
+  const rollFor = (side: Color) => (side === 'white' ? 0 : 0);
 
   const park = (rig: HandRig, side: Color, target: THREE.Vector3) => {
     placeHand(rig, target, yawFor(side, target), pitchFor(side), rollFor(side));

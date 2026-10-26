@@ -114,8 +114,10 @@ h3 { font-size: 1.05rem; margin-top: 8px; }
 }
 .pair { display: grid; grid-template-columns: 1fr auto 1fr; gap: 18px; align-items: start; margin-top: 12px; }
 .seat .portrait { background: #e7e0d4; }
-.pregame .seat .portrait { max-width: 230px; margin: 0 auto; }
-.pregame .actions { position: sticky; bottom: 0; background: linear-gradient(transparent, #f4ecdf 28%); padding: 12px 0 4px; }
+.pregame .seat .portrait { max-width: 160px; margin: 0 auto; }
+.pregame .seat .portrait-canvas { width: auto; height: 150px; max-width: 100%; margin: 0 auto; }
+.pregame .record { margin-top: 4px; }
+.pregame .actions { position: static; background: none; padding: 10px 0 0; }
 .side { margin: 0 0 8px; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.72rem; color: #7a6550; }
 .vs { align-self: center; font-family: "Noto Serif", Palatino, Georgia, serif; font-size: 1.4rem; }
 .card h3 { font-size: 1.45rem; }
